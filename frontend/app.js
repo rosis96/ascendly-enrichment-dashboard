@@ -8,7 +8,13 @@ const LABELS = {
 };
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
-  view: "table", client: "ascendly", labels: {} };
+  view: "table", client: "ascendly", labels: {}, editId: null };
+
+function isSafeLead(ld){
+  const v = ld.verify || {};
+  const st = (ld.email_status || "").toLowerCase();
+  return v.is_safe_to_send === true || ["safe", "valid"].includes(st);
+}
 
 function $(id){ return document.getElementById(id); }
 function pretty(k){ return state.labels[k] || LABELS[k] || k.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()); }
@@ -199,13 +205,34 @@ function buildScope(total){
 async function startJob(kind){
   if(!state.listId || state.running) return;
   const d = await api(`/api/lists/${state.listId}`);
-  const { scope, count } = buildScope(d.list.count);
+  const leads = d.leads || [];
+
+  let candidates, scope;
+  if(state.selectedLeads.size > 0){
+    candidates = leads.filter(l => state.selectedLeads.has(l.id));
+    scope = { lead_ids: [...state.selectedLeads] };
+  } else {
+    const lim = parseInt($("limitN").value, 10);
+    if(lim > 0){ candidates = leads.slice(0, lim); scope = { limit: lim }; }
+    else { candidates = leads; scope = {}; }
+  }
+
+  const onlySafe = kind === "enrich" && $("onlySafe").checked;
+  const eligible = onlySafe ? candidates.filter(isSafeLead) : candidates;
+  const count = eligible.length;
+
+  if(kind === "enrich" && onlySafe && count === 0){
+    alert("No verified-safe leads in this scope. Run Verify first, then enrich the Safe ones.");
+    return;
+  }
   const verb = kind === "verify" ? "verify" : "enrich";
   const credit = kind === "verify" ? "Reoon" : "API";
-  if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
+  const extra = onlySafe && candidates.length - count > 0 ? ` (skipping ${candidates.length - count} not-safe)` : "";
+  if(count > 50 && !confirm(`This will ${verb} ${count} leads${extra} and use ${credit} credit. Continue?`)) return;
 
   const ep = kind === "verify" ? "verify" : "run";
-  const body = kind === "verify" ? scope : Object.assign({ enrichments: state.selected }, scope);
+  const body = Object.assign({}, scope);
+  if(kind === "enrich"){ body.enrichments = state.selected; body.only_safe = onlySafe; }
   const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -290,11 +317,21 @@ function renderFormat(profile, fmt, profiles, sets, profName, idByName){
   h += builderHtml();
   fmt.variables.forEach(v => {
     const cid = idByName[v.name];
-    h += `<div class="card vcard"><div class="vh"><span class="vname">${esc(v.label || v.name)}</span>` +
+    let acts = "";
+    if(v.custom && cid){
+      acts = `<span class="vact" data-edit="${cid}">edit</span>` +
+             `<span class="vact" data-dup="${esc(v.name)}">duplicate</span>` +
+             `<span class="delx" data-del="${cid}" title="Delete">✕</span>`;
+    } else {
+      acts = `<span class="vact" data-dup="${esc(v.name)}">duplicate</span>`;
+      if(!v.always) acts += `<span class="vact" data-hide="${esc(v.name)}" data-on="${v.hidden ? 1 : 0}">${v.hidden ? "unhide" : "hide"}</span>`;
+    }
+    h += `<div class="card vcard${v.hidden ? " hidden-var" : ""}"><div class="vh"><span class="vname">${esc(v.label || v.name)}</span>` +
       (v.min_words ? `<span class="wr">${v.min_words}-${v.max_words} words</span>` : "") +
       (v.always ? `<span class="tag">always runs</span>` : "") +
       (v.custom ? `<span class="tag" style="background:var(--acc-bg);color:var(--acc-tx)">custom</span>` : "") +
-      (cid ? `<span class="delx" data-del="${cid}" title="Delete">✕</span>` : "") + `</div>`;
+      (v.hidden ? `<span class="tag hid">hidden</span>` : "") +
+      `<span class="vacts">${acts}</span></div>`;
     if(v.description) h += `<div class="vp">${esc(v.description)}</div>`;
     if(v.notes && v.notes.length) h += `<ul class="vn">` + v.notes.map(n => `<li>${esc(n)}</li>`).join("") + `</ul>`;
     h += `</div>`;
@@ -302,11 +339,14 @@ function renderFormat(profile, fmt, profiles, sets, profName, idByName){
   $("formatView").innerHTML = h;
   $("fProfile").onchange = e => { state.client = e.target.value; loadFormat(); };
   $("fSet").onchange = e => { state.variableSet = e.target.value; state.client = e.target.value.split("_")[0]; loadEnrichments(); loadFormat(); };
-  $("addVarBtn").onclick = () => { const b = $("builder"); b.hidden = !b.hidden; };
+  $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
   $("cvTemplate").oninput = detectPlaceholders;
   $("cvSave").onclick = saveCustom;
-  $("cvCancel").onclick = () => { $("builder").hidden = true; };
+  $("cvCancel").onclick = () => { $("builder").hidden = true; resetBuilder(); };
   $("formatView").querySelectorAll("[data-del]").forEach(x => x.onclick = () => deleteCustom(x.dataset.del));
+  $("formatView").querySelectorAll("[data-dup]").forEach(x => x.onclick = () => duplicateVar(x.dataset.dup));
+  $("formatView").querySelectorAll("[data-hide]").forEach(x => x.onclick = () => toggleHide(x.dataset.hide, x.dataset.on !== "1"));
+  $("formatView").querySelectorAll("[data-edit]").forEach(x => x.onclick = () => editCustom(parseInt(x.dataset.edit, 10)));
 }
 
 function builderHtml(){
@@ -339,6 +379,13 @@ function detectPlaceholders(){
   }).join("");
 }
 
+function resetBuilder(){
+  state.editId = null;
+  ["cvName", "cvTemplate", "cvMin", "cvMax"].forEach(id => { if($(id)) $(id).value = ""; });
+  if($("cvPlaceholders")) detectPlaceholders();
+  if($("cvSave")) $("cvSave").textContent = "Save variable";
+}
+
 async function saveCustom(){
   const label = $("cvName").value.trim();
   if(!label){ alert("Give the variable a name first."); return; }
@@ -352,9 +399,52 @@ async function saveCustom(){
   const body = {
     variable_set: state.variableSet, label, template: $("cvTemplate").value,
     min_words: parseInt($("cvMin").value, 10) || null, max_words: parseInt($("cvMax").value, 10) || null,
-    placeholders,
+    placeholders, id: state.editId,
   };
   await api("/api/custom-variables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  resetBuilder();
+  await loadEnrichments();
+  loadFormat();
+}
+
+async function editCustom(id){
+  const customs = await api("/api/custom-variables?variable_set=" + state.variableSet);
+  const row = customs.find(c => c.id === id);
+  if(!row) return;
+  const spec = row.spec || {};
+  $("builder").hidden = false;
+  state.editId = id;
+  $("cvName").value = spec.label || row.label || "";
+  $("cvTemplate").value = spec.template || "";
+  $("cvMin").value = spec.min_words || "";
+  $("cvMax").value = spec.max_words || "";
+  detectPlaceholders();
+  const ph = spec.placeholders || {};
+  $("cvPlaceholders").querySelectorAll("[data-tok]").forEach(el => {
+    const p = ph[el.dataset.tok] || {};
+    el.querySelector(".pdesc").value = p.description || "";
+    el.querySelector(".pmin").value = p.min_words || "";
+    el.querySelector(".pmax").value = p.max_words || "";
+    el.querySelector(".pex").value = (p.examples || []).join("\n");
+  });
+  $("cvSave").textContent = "Update variable";
+  $("builder").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function duplicateVar(name){
+  await api("/api/custom-variables/duplicate", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variable_set: state.variableSet, name }),
+  });
+  await loadEnrichments();
+  loadFormat();
+}
+
+async function toggleHide(name, hidden){
+  await api("/api/hidden", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variable_set: state.variableSet, name, hidden }),
+  });
   await loadEnrichments();
   loadFormat();
 }

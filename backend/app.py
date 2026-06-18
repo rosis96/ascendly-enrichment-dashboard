@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import SessionLocal, init_db
-from models import LeadList, Lead, Job, CustomVariable
+from models import LeadList, Lead, Job, CustomVariable, HiddenVariable
 import engine_adapter as ea
 from integrations import reoon
 
@@ -26,6 +26,17 @@ def _custom_specs(s, variable_set):
     """List of engine-format specs for a set's custom variables."""
     rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
     return [r.spec for r in rows]
+
+
+def _hidden_names(s, variable_set):
+    return {r.name for r in s.query(HiddenVariable).filter_by(variable_set=variable_set).all()}
+
+
+def _lead_safe(ld):
+    """True only when Reoon judged the email deliverable (valid/safe bucket)."""
+    if not ld.verify:
+        return False
+    return reoon.bucket(ld.verify)[0] == "valid"
 
 init_db()
 
@@ -181,6 +192,7 @@ class RunBody(BaseModel):
     enrichments: list[str] = []
     lead_ids: list[int] = []     # run only these leads (selection)
     limit: Optional[int] = None  # otherwise run only the first N (test cap)
+    only_safe: bool = True       # only enrich leads Reoon marked safe/deliverable
 
 
 class VerifyBody(BaseModel):
@@ -210,6 +222,18 @@ class CustomVarBody(BaseModel):
     min_words: Optional[int] = None
     max_words: Optional[int] = None
     placeholders: list[Placeholder] = []
+    id: Optional[int] = None    # set to update an existing custom variable
+
+
+class DuplicateBody(BaseModel):
+    variable_set: str
+    name: str
+
+
+class HideBody(BaseModel):
+    variable_set: str
+    name: str
+    hidden: bool = True
 
 
 @app.get("/api/custom-variables")
@@ -231,17 +255,46 @@ def create_custom(body: CustomVarBody):
     )
     s = SessionLocal()
     try:
-        existing = s.query(CustomVariable).filter_by(variable_set=body.variable_set, name=spec["name"]).first()
-        if existing:
-            existing.label = spec["label"]
-            existing.spec = spec
-            row = existing
+        row = s.get(CustomVariable, body.id) if body.id else None
+        if not row:
+            row = s.query(CustomVariable).filter_by(variable_set=body.variable_set, name=spec["name"]).first()
+        if row:
+            row.variable_set = body.variable_set
+            row.name = spec["name"]
+            row.label = spec["label"]
+            row.spec = spec
         else:
             row = CustomVariable(variable_set=body.variable_set, name=spec["name"],
                                  label=spec["label"], spec=spec)
             s.add(row)
         s.commit()
         return {"id": row.id, "name": row.name, "label": row.label, "spec": row.spec}
+    finally:
+        s.close()
+
+
+@app.post("/api/custom-variables/duplicate")
+def duplicate_variable(body: DuplicateBody):
+    s = SessionLocal()
+    try:
+        cv = s.query(CustomVariable).filter_by(variable_set=body.variable_set, name=body.name).first()
+        if cv:
+            src, base_label = cv.spec, cv.label
+        else:
+            bs = ea.get_builtin_spec(body.variable_set, body.name)
+            src, base_label = bs, (bs.get("label") if bs else body.name)
+        if not src:
+            raise HTTPException(404, "Variable not found")
+        spec = ea.duplicate_spec(src, (base_label or body.name) + " copy")
+        existing = {r.name for r in s.query(CustomVariable).filter_by(variable_set=body.variable_set).all()}
+        base, n, i = spec["name"], spec["name"], 2
+        while n in existing:
+            n = f"{base}_{i}"; i += 1
+        spec["name"] = n
+        row = CustomVariable(variable_set=body.variable_set, name=spec["name"], label=spec["label"], spec=spec)
+        s.add(row)
+        s.commit()
+        return {"id": row.id, "name": row.name, "label": row.label}
     finally:
         s.close()
 
@@ -255,6 +308,22 @@ def delete_custom(var_id: int):
             s.delete(row)
             s.commit()
         return {"ok": True}
+    finally:
+        s.close()
+
+
+@app.post("/api/hidden")
+def set_hidden(body: HideBody):
+    s = SessionLocal()
+    try:
+        row = s.query(HiddenVariable).filter_by(variable_set=body.variable_set, name=body.name).first()
+        if body.hidden and not row:
+            s.add(HiddenVariable(variable_set=body.variable_set, name=body.name))
+            s.commit()
+        elif not body.hidden and row:
+            s.delete(row)
+            s.commit()
+        return {"ok": True, "hidden": body.hidden}
     finally:
         s.close()
 
@@ -274,10 +343,18 @@ def format_spec(variable_set: str):
     spec = ea.format_spec(variable_set)
     s = SessionLocal()
     try:
-        customs = [ea.custom_card(c) for c in _custom_specs(s, variable_set)]
+        hidden = _hidden_names(s, variable_set)
+        rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
+        custom_cards = []
+        for r in rows:
+            card = ea.custom_card(r.spec)
+            card["id"] = r.id
+            custom_cards.append(card)
     finally:
         s.close()
-    spec["variables"] = spec.get("variables", []) + customs
+    for v in spec.get("variables", []):
+        v["hidden"] = v.get("name") in hidden
+    spec["variables"] = spec.get("variables", []) + custom_cards
     return spec
 
 
@@ -285,6 +362,7 @@ def format_spec(variable_set: str):
 def enrichments(variable_set: str = "ascendly_lean"):
     s = SessionLocal()
     try:
+        hidden = _hidden_names(s, variable_set)
         rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
         custom_names = [r.name for r in rows]
         labels = {r.name: r.label for r in rows}
@@ -292,8 +370,8 @@ def enrichments(variable_set: str = "ascendly_lean"):
         s.close()
     return {
         "always": ea.ALWAYS_KEYS,
-        "selectable": ea.selectable_enrichments(variable_set) + custom_names,
-        "all": ea.list_output_keys(variable_set) + custom_names,
+        "selectable": [k for k in ea.selectable_enrichments(variable_set) if k not in hidden] + custom_names,
+        "all": [k for k in ea.list_output_keys(variable_set) if k not in hidden] + custom_names,
         "labels": labels,
     }
 
@@ -379,25 +457,32 @@ def run_list(list_id: int, body: RunBody):
             raise HTTPException(404, "List not found")
         q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
         if body.lead_ids:
-            targets = q.filter(Lead.id.in_(body.lead_ids)).all()
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
         elif body.limit and body.limit > 0:
-            targets = q.limit(body.limit).all()
+            candidates = q.limit(body.limit).all()
         else:
-            targets = q.all()
+            candidates = q.all()
+        # Verify-first: only enrich leads Reoon marked safe/deliverable.
+        if body.only_safe:
+            targets = [ld for ld in candidates if _lead_safe(ld)]
+        else:
+            targets = candidates
+        skipped_unsafe = len(candidates) - len(targets)
         # Reset only the leads we're about to run; earlier results are preserved.
         for ld in targets:
             ld.status = "pending"
             ld.result = {}
-        job = Job(list_id=list_id, variable_set=l.variable_set,
-                  enrichments=body.enrichments, status="queued", total=len(targets))
+        job = Job(list_id=list_id, variable_set=l.variable_set, enrichments=body.enrichments,
+                  status="queued" if targets else "done", total=len(targets))
         s.add(job)
         s.commit()
         job_id = job.id
         target_ids = [ld.id for ld in targets]
     finally:
         s.close()
-    threading.Thread(target=_run_job, args=(job_id, target_ids), daemon=True).start()
-    return {"job_id": job_id, "count": len(target_ids)}
+    if target_ids:
+        threading.Thread(target=_run_job, args=(job_id, target_ids), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids), "skipped_unsafe": skipped_unsafe}
 
 
 @app.post("/api/lists/{list_id}/verify")
@@ -451,7 +536,9 @@ def export_list(list_id: int):
         if not l:
             raise HTTPException(404, "List not found")
         leads = s.query(Lead).filter_by(list_id=list_id).all()
-        out_keys = ea.list_output_keys(l.variable_set) + [c.get("name") for c in _custom_specs(s, l.variable_set)]
+        hidden = _hidden_names(s, l.variable_set)
+        out_keys = [k for k in ea.list_output_keys(l.variable_set) if k not in hidden] + \
+            [c.get("name") for c in _custom_specs(s, l.variable_set)]
         # raw columns first (union across rows), then verification, then enrichment
         raw_cols = []
         for ld in leads:

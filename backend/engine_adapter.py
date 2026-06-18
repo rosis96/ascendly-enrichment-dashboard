@@ -67,6 +67,32 @@ def selectable_enrichments(variable_set):
     return [k for k in list_output_keys(variable_set) if k not in ALWAYS_KEYS]
 
 
+def get_builtin_spec(variable_set, name):
+    """Raw spec of a built-in variable from the engine file, or None."""
+    path = os.path.join(VAR_DIR, f"{variable_set}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return None
+    for v in d.get("variables", []):
+        if v.get("name") == name:
+            return v
+    return None
+
+
+def duplicate_spec(source_spec, new_label):
+    """Build a custom spec copied from a built-in or custom variable spec."""
+    spec = {"name": slugify(new_label), "label": new_label, "custom": True}
+    for k in ("min_words", "max_words"):
+        if source_spec.get(k):
+            spec[k] = source_spec[k]
+    spec["purpose"] = source_spec.get("purpose") or source_spec.get("definition") or ""
+    spec["template"] = source_spec.get("template", "")
+    spec["placeholders"] = dict(source_spec.get("placeholders", {}))
+    return spec
+
+
 # Descriptive fields surfaced in the Formats view (who we're writing for).
 _PROFILE_FIELDS = [
     ("service_brief", "What the client does"),

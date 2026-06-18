@@ -51,6 +51,13 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .scope input[type=number]{width:54px;height:30px;padding:0 8px}
 .selinfo{color:var(--acc-tx);font-weight:500}
 .credits{font-size:11px;color:var(--muted);background:var(--gray-bg);border-radius:20px;padding:2px 9px}
+.onlysafe{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer}
+.onlysafe input{width:auto;height:auto;margin:0}
+.vacts{margin-left:auto;display:flex;gap:11px;align-items:center}
+.vact{font-size:11px;color:var(--acc-tx);cursor:pointer}
+.vact:hover{text-decoration:underline}
+.vcard.hidden-var{opacity:.5}
+.tag.hid{background:var(--gray-bg);color:var(--gray-tx)}
 .run.stop{background:var(--red-tx)}
 .cbx{width:30px;text-align:center}
 .rowcb,#selAll{cursor:pointer}

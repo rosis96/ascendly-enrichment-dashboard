@@ -43,6 +43,13 @@ class CustomVariable(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class HiddenVariable(Base):
+    __tablename__ = "hidden_variables"
+    id = Column(Integer, primary_key=True)
+    variable_set = Column(String, index=True)
+    name = Column(String)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     id = Column(Integer, primary_key=True)
