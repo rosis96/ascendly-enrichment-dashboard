@@ -1,0 +1,199 @@
+{
+  "variable_set_name": "ascendly_followup",
+  "profile_version": "followup_body_only_no_placeholders_v3",
+  "skip_icp": true,
+  "skip_style_checks": true,
+  "temperature": 0.45,
+  "max_tokens": 2600,
+  "output_keys": [
+    "step1_body",
+    "step2_body",
+    "step3_body",
+    "step4_body",
+    "step5_body",
+    "step6_body",
+    "step7_body",
+    "step8_body"
+  ],
+  "what_this_is": "Body-only follow-up sequence for prospects who already replied interested. No subject lines. No ICP decision. Every prospect is in scope. The engine writes complete ready-to-send body text for all 8 steps.",
+  "global_output_rules": [
+    "Return one valid JSON object only. No markdown, no code fences, no text outside JSON.",
+    "Use exactly these top-level keys: step1_body, step2_body, step3_body, step4_body, step5_body, step6_body, step7_body, step8_body.",
+    "Every value must be a complete, ready-to-send email body.",
+    "Do not output subject lines.",
+    "Do not include any placeholders, merge tags, variables, braces, or bracketed text.",
+    "Never output {{prospect_name}}, {{company_name}}, {{agency_success_metric}}, [COMPLIMENT], [HIGH_INTENT_PAGE], [FRICTION], [FUNNY], [CONTENT_TOPIC], [ANNOUNCEMENT], or any similar placeholder.",
+    "Do not greet with Hey, Hi, Hello, or the prospect name.",
+    "Do not use the contact's first name, last name, full name, founder name, employee name, or any personal name from the CSV.",
+    "If a real company name is available from the CSV row or website, use it naturally where needed.",
+    "If no company name is available, use your team, your company, or the team.",
+    "Every body must contain paragraph breaks using literal newline characters between paragraphs.",
+    "Each body must be formatted as 3 to 5 short paragraphs.",
+    "Do not return one long paragraph.",
+    "Ground every filled detail in the prospect's real website content or CSV row context.",
+    "Never invent website pages, product names, announcements, metrics, client names, case studies, or results.",
+    "Use the same specific compliment in step1_body and step2_body.",
+    "Use the same high-intent page in step2_body and step5_body.",
+    "Use the same announcement or milestone in step6_body and step8_body. If no real announcement exists, use a visible service, launch, offer, or site update instead.",
+    "Never use the em dash character.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Write naturally and directly. Avoid sounding robotic or over-polished.",
+    "No square brackets may remain in any output value.",
+    "All body fields must be ready to send without manual cleanup."
+  ],
+  "research_slots": {
+    "compliment": "One specific, real, well-executed element from the prospect's site, such as a pricing page layout, product demo flow, service positioning, case study section, resource library, design system, dashboard, calculator, or conversion page.",
+    "high_intent_page": "One real page or section on the site that signals buyer intent, such as pricing, demo, services, case studies, contact, consultation, audit, quote request, product, platform, or solutions.",
+    "friction": "One specific reason visitors may hesitate or leave, such as no quick booking path, long form, unclear next step, hidden pricing, weak CTA, too much navigation, or no direct demo option.",
+    "funny": "A real distinctive, playful, visual, or memorable detail on the site. If none exists, use a distinctive serious detail instead.",
+    "content_topic": "A real article, guide, report, webinar, resource, or page topic from the prospect's site. If no content exists, use a service topic.",
+    "announcement": "A real update, launch, milestone, event, webinar, product release, case study, new service, or visible recent initiative. If none exists, use their most visible core offer."
+  },
+  "variables": [
+    {
+      "name": "step1_body",
+      "min_words": 45,
+      "max_words": 140,
+      "fallback": "N/A",
+      "purpose": "First follow-up body using a specific website compliment.",
+      "template": "Was just checking out the site and noticed the [COMPLIMENT]. Love how clean that is.\n\nBecause the positioning is sharp, I’m betting the site gets some solid traffic from buyers who are already interested.\n\nWe run an outbound + inbound capture system that turns more of that traffic into booked sales meetings before those visitors disappear.\n\nI’d love to walk you through the visual capture setup. Do you have 15 minutes next Monday or Tuesday afternoon?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [COMPLIMENT] with a real specific website detail.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names.",
+        "Do not invent traffic, metrics, clients, or results."
+      ]
+    },
+    {
+      "name": "step2_body",
+      "min_words": 45,
+      "max_words": 140,
+      "fallback": "N/A",
+      "purpose": "Second follow-up body identifying one conversion leak.",
+      "template": "Quick technical observation.\n\nI went deeper into the [HIGH_INTENT_PAGE]. Right now, because of [FRICTION], high-intent buyers who are not ready to commit fully may leave without taking the next step.\n\nWe fix this exact leak by combining outbound tracking with inbound capture so fewer warm accounts slip through.\n\nLet’s skip a long back-and-forth. Can I walk you through the pipeline framework this coming Monday or Tuesday morning?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [HIGH_INTENT_PAGE] with a real page or section from the website.",
+        "Replace [FRICTION] with a real or reasonable conversion issue based on that page.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names."
+      ]
+    },
+    {
+      "name": "step3_body",
+      "min_words": 45,
+      "max_words": 145,
+      "fallback": "N/A",
+      "purpose": "Third follow-up body using a memorable website detail.",
+      "template": "Random question: whose idea was the [FUNNY] on the website?\n\nHonestly, it gives the company some real personality, which is rare in B2B.\n\nA brand with that much thought behind it deserves a completely slammed calendar.\n\nI built a quick blueprint showing how we can layer an outbound engine on top of the current positioning to book more qualified conversations. Are you open next Monday at 2 PM or Tuesday at 10 AM?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [FUNNY] with a real distinctive website detail.",
+        "If no playful detail exists, use a distinctive serious website detail.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names."
+      ]
+    },
+    {
+      "name": "step4_body",
+      "min_words": 50,
+      "max_words": 150,
+      "fallback": "N/A",
+      "purpose": "Fourth follow-up body connecting a content topic or service topic to pipeline.",
+      "template": "I was reading the piece on [CONTENT_TOPIC]. It got me thinking about teams with a similar point of view that still struggle to turn interested readers into actual sales pipeline.\n\nThe fix is usually not more content. It is better capture, cleaner routing, and outbound follow-up while the account is still warm.\n\nI mapped out a similar dual-threat pipeline strategy for the company. Do either Monday or Tuesday next week work for a brief 15-minute look?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [CONTENT_TOPIC] with a real article, guide, report, webinar, service topic, or page topic.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names.",
+        "Do not invent content that is not visible."
+      ]
+    },
+    {
+      "name": "step5_body",
+      "min_words": 50,
+      "max_words": 150,
+      "fallback": "N/A",
+      "purpose": "Fifth follow-up body focused on anonymous website visitors and missed inbound demand.",
+      "template": "Fun fact: most people visiting the [HIGH_INTENT_PAGE] leave without giving an email or booking a call.\n\nMost outbound agencies just spam cold lists. Most inbound agencies just tell companies to write more blogs.\n\nWe connect both sides by identifying warm website traffic and triggering outbound campaigns to the right accounts while interest is still fresh.\n\nI want to show you the actual backend we use for this. How does next Tuesday morning look for a quick walkthrough?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Use the same [HIGH_INTENT_PAGE] concept from step2_body.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names.",
+        "Do not invent exact visitor numbers."
+      ]
+    },
+    {
+      "name": "step6_body",
+      "min_words": 50,
+      "max_words": 150,
+      "fallback": "N/A",
+      "purpose": "Sixth follow-up body tied to a real update, launch, milestone, or visible initiative.",
+      "template": "Noticed the update on the site about [ANNOUNCEMENT]. Big milestone for the team.\n\nUsually, a push like that means sales and marketing need to move fast while attention is highest.\n\nWe can deploy a managed outbound campaign to support the initiative while also capturing the inbound demand hitting the site.\n\nI’m putting a few slots together for next Monday and Tuesday to show the playbook. Any preference between the two?",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [ANNOUNCEMENT] with a real visible announcement, launch, milestone, initiative, service, or offer.",
+        "If there is no recent announcement, use a real core service or visible initiative instead.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names."
+      ]
+    },
+    {
+      "name": "step7_body",
+      "min_words": 45,
+      "max_words": 135,
+      "fallback": "N/A",
+      "purpose": "Seventh follow-up body as a short direct check-in.",
+      "template": "I’ll keep it brief.\n\nThe company has a clear offer and a solid site, but there are usually a few places where interested visitors leave without turning into pipeline.\n\nIf scaling outbound plus inbound capture is a priority this quarter, let’s connect. If not, no sweat.\n\nIf it is, I can walk you through the mechanism next week. Let me know if Monday or Tuesday works better.",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names.",
+        "Do not add research details unless directly grounded."
+      ]
+    },
+    {
+      "name": "step8_body",
+      "min_words": 55,
+      "max_words": 155,
+      "fallback": "N/A",
+      "purpose": "Eighth follow-up body as a clean breakup email.",
+      "template": "I’m assuming optimizing inbound capture and outbound pipeline is not on the radar right now. Completely fair.\n\nI’ll stop cluttering your inbox.\n\nIf it becomes relevant later, I can walk you through how an agency can capture more site traffic and turn it into automated booked meetings.\n\nEither way, keep pushing the [ANNOUNCEMENT].",
+      "instructions": [
+        "Output the body only. No subject line.",
+        "Do not include a greeting.",
+        "Preserve paragraph breaks exactly with newline spacing.",
+        "Replace [ANNOUNCEMENT] with the same real announcement, initiative, service, or offer used in step6_body.",
+        "No placeholders, brackets, or merge tags may remain.",
+        "Do not use prospect names."
+      ]
+    }
+  ],
+  "final_json_output_schema": {
+    "step1_body": "",
+    "step2_body": "",
+    "step3_body": "",
+    "step4_body": "",
+    "step5_body": "",
+    "step6_body": "",
+    "step7_body": "",
+    "step8_body": ""
+  }
+}

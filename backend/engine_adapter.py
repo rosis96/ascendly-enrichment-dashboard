@@ -1,0 +1,341 @@
+"""Adapter between the dashboard and the personalization engine.
+
+Two modes:
+  * DEMO (default): deterministic fake enrichment so the whole UI works locally
+    with no OpenAI key, no scraping, and no cost.
+  * REAL (ENRICH_MODE=real): lazily imports the duplicated engine/run.py and runs
+    the actual pipeline. Wired but off by default until keys/docs are in place.
+
+The title-gate keyword logic mirrors engine/run.py so the demo behaves like the
+real strict gate (junior titles are rejected before any "scrape").
+"""
+import os
+import re
+import json
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENGINE_DIR = os.path.join(BASE_DIR, "engine")
+VAR_DIR = os.path.join(ENGINE_DIR, "variable_sets")
+PROFILE_DIR = os.path.join(ENGINE_DIR, "client_profiles")
+
+ALWAYS_KEYS = ["ICPReview", "ICP_reason"]
+
+# Mirrors engine/run.py _TITLE_SENIOR_CUES (kept strict so juniors are rejected).
+_TITLE_SENIOR_CUES = [
+    "founder", "co-founder", "cofounder", "owner", "principal", "managing partner",
+    "managing owner", "partner", "ceo", "chief executive", "president",
+    "managing director", "executive director", "group managing director",
+    "agency principal", "chief growth", "chief revenue", "chief business",
+    "chief commercial", "chief sales", "chief marketing", "chief strategy",
+    "cgo", "cro", "cbo", "cco", "cso", "cmo", "vp", "svp", "evp", "vice president",
+    "director of business development", "director, business development",
+    "director of new business", "director of new client acquisition",
+    "director of agency growth", "director of growth", "director of revenue growth",
+    "director of strategic", "director of commercial growth",
+    "director of market development", "director of client acquisition",
+    "director of demand generation", "director of marketing & growth",
+    "director of sales & marketing", "director of commercial operations",
+    "director of revenue operations", "director of go-to-market",
+    "director of market expansion", "practice lead", "managing consultant",
+    "practice director", "commercial director", "growth director",
+    "business director", "new business director", "client development director",
+    "market development director",
+]
+
+
+def list_variable_sets():
+    out = []
+    for f in sorted(os.listdir(VAR_DIR)):
+        if f.endswith(".json") and not f.endswith(".bak"):
+            out.append(f[:-5])
+    return out
+
+
+def list_output_keys(variable_set):
+    path = os.path.join(VAR_DIR, f"{variable_set}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh).get("output_keys", [])
+    except Exception:
+        return ["ICPReview", "ICP_reason", "personalized_first_line", "company_category",
+                "ideal_customers", "product_complimentary", "value_proposition"]
+
+
+def selectable_enrichments(variable_set):
+    """Output variables a user can choose to include (the 'always on' gate
+    fields are excluded from the picker)."""
+    return [k for k in list_output_keys(variable_set) if k not in ALWAYS_KEYS]
+
+
+# Descriptive fields surfaced in the Formats view (who we're writing for).
+_PROFILE_FIELDS = [
+    ("service_brief", "What the client does"),
+    ("main_offer", "Main offer"),
+    ("what_we_are_pitching", "What we pitch"),
+    ("target_outcome", "Target outcome"),
+    ("icp_summary", "Who we target (ICP)"),
+]
+
+
+def list_profiles():
+    out = []
+    for f in sorted(os.listdir(PROFILE_DIR)):
+        if not f.endswith(".json"):
+            continue
+        name = f[:-5]
+        if "icp_only" in name or name.endswith("_icp"):  # skip ICP-only classifier profiles
+            continue
+        out.append(name)
+    return out
+
+
+def get_profile(name):
+    path = os.path.join(PROFILE_DIR, f"{name}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return {"name": name, "fields": []}
+    fields = [{"label": lbl, "value": d.get(key, "")} for key, lbl in _PROFILE_FIELDS if d.get(key)]
+    return {"name": d.get("client_name", name), "fields": fields}
+
+
+def _variable_description(v):
+    """Best human-readable description of how to write a variable."""
+    desc = v.get("purpose") or v.get("definition") or ""
+    if not desc and isinstance(v.get("complete_writing_philosophy"), dict):
+        desc = " · ".join(f"{k.replace('_',' ')}: {val}"
+                          for k, val in v["complete_writing_philosophy"].items())
+    return desc
+
+
+def _variable_notes(v):
+    notes = []
+    for key in ("instructions", "writing_rules", "hard_requirements"):
+        val = v.get(key)
+        if isinstance(val, list):
+            notes.extend(str(x) for x in val if isinstance(x, str))
+    rules = v.get("rules")
+    if isinstance(rules, list):
+        notes.extend(str(x) for x in rules if isinstance(x, str))
+    elif isinstance(rules, dict):
+        for vv in rules.values():
+            if isinstance(vv, list):
+                notes.extend(str(x) for x in vv if isinstance(x, str))
+    return notes
+
+
+def format_spec(variable_set):
+    path = os.path.join(VAR_DIR, f"{variable_set}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return {"variable_set": variable_set, "client": "", "variables": []}
+    variables = []
+    for v in d.get("variables", []):
+        variables.append({
+            "name": v.get("name", ""),
+            "min_words": v.get("min_words"),
+            "max_words": v.get("max_words"),
+            "always": v.get("name") in ALWAYS_KEYS,
+            "description": _variable_description(v),
+            "notes": _variable_notes(v)[:8],
+        })
+    return {
+        "variable_set": variable_set,
+        "client": variable_set.split("_")[0],
+        "output_keys": d.get("output_keys", []),
+        "variables": variables,
+    }
+
+
+# ------------------------- custom variable builder -------------------------
+
+def slugify(label):
+    s = re.sub(r"[^a-z0-9]+", "_", str(label).lower()).strip("_")
+    return s or "custom_var"
+
+
+def extract_tokens(template):
+    """Unique {{placeholder}} tokens in order of first appearance."""
+    seen = []
+    for m in re.findall(r"\{\{(.*?)\}\}", template or ""):
+        t = m.strip()
+        if t and t not in seen:
+            seen.append(t)
+    return seen
+
+
+def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose=""):
+    """Turn the builder's input into a valid engine-format variable spec.
+
+    placeholders: list of {token, description, min_words, max_words, examples}
+    """
+    spec = {"name": slugify(label), "label": str(label).strip(), "custom": True}
+    if min_words:
+        spec["min_words"] = int(min_words)
+    if max_words:
+        spec["max_words"] = int(max_words)
+    if purpose:
+        spec["purpose"] = purpose
+    spec["template"] = template or ""
+
+    by_token = {p.get("token", "").strip(): p for p in (placeholders or [])}
+    ph = {}
+    for tok in extract_tokens(template):
+        p = by_token.get(tok, {})
+        item = {}
+        if p.get("description"):
+            item["description"] = p["description"]
+        if p.get("min_words"):
+            item["min_words"] = int(p["min_words"])
+        if p.get("max_words"):
+            item["max_words"] = int(p["max_words"])
+        ex = p.get("examples") or []
+        if isinstance(ex, str):
+            ex = [x.strip() for x in ex.splitlines() if x.strip()]
+        if ex:
+            item["examples"] = ex
+        ph[tok] = item
+    spec["placeholders"] = ph
+    return spec
+
+
+def fill_custom(spec, lead):
+    """Demo-mode renderer: fill a custom template with examples / lead facts."""
+    template = spec.get("template", "")
+    ph = spec.get("placeholders", {})
+    company = lead.get("company") or "your company"
+
+    def repl(m):
+        tok = m.group(1).strip()
+        p = ph.get(tok, {})
+        ex = p.get("examples") or []
+        if ex:
+            return str(ex[0])
+        low = tok.lower()
+        if "company" in low:
+            return company
+        if "industry" in low:
+            return "agencies"
+        return "[" + tok + "]"
+
+    return re.sub(r"\{\{(.*?)\}\}", repl, template).strip()
+
+
+def custom_card(spec):
+    """Formats-view card shape for a custom variable spec."""
+    notes = []
+    for tok, p in (spec.get("placeholders") or {}).items():
+        bits = [f"{{{{{tok}}}}}"]
+        if p.get("description"):
+            bits.append("— " + p["description"])
+        if p.get("min_words") and p.get("max_words"):
+            bits.append(f"({p['min_words']}-{p['max_words']} words)")
+        if p.get("examples"):
+            bits.append("e.g. " + "; ".join(p["examples"][:2]))
+        notes.append(" ".join(bits))
+    return {
+        "name": spec.get("name", ""),
+        "label": spec.get("label", spec.get("name", "")),
+        "min_words": spec.get("min_words"),
+        "max_words": spec.get("max_words"),
+        "always": False,
+        "custom": True,
+        "description": spec.get("purpose") or spec.get("template", ""),
+        "notes": notes,
+    }
+
+
+def _norm(s):
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9& ]+", " ", str(s).lower())).strip()
+
+
+def title_passes(title):
+    t = _norm(title)
+    if not t:
+        return False
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(c)}(?![a-z0-9])", t) for c in _TITLE_SENIOR_CUES)
+
+
+def _demo_value(key, company):
+    samples = {
+        "personalized_first_line":
+            f"The way {company} packages its client work signals real positioning, not just delivery.",
+        "company_category": "marketing agencies",
+        "ideal_customers": "B2B founders, growth leaders, & SaaS teams",
+        "product_complimentary":
+            f"{company}'s client roster is sharp. Are those the kinds of clients you want more of?",
+        "value_proposition":
+            (f"We specialize in client pipeline growth for {company}, by running personalized cold "
+             f"outreach and capturing inbound leads before they leave your site. And, I have seen how "
+             f"{company} wins work from a clear set of clients. And, from our experience, a managed "
+             f"outbound and inbound booking system can improve {company}'s booked calls, closed deals "
+             f"& consistent meeting flow."),
+    }
+    return samples.get(key, f"[{key} for {company}]")
+
+
+def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
+    """Return (result_dict, est_cost). Deterministic, no network."""
+    custom_specs = custom_specs or []
+    title = lead.get("title") or ""
+    company = lead.get("company") or "this company"
+    website = (lead.get("website") or "").lower()
+    keys = list_output_keys(variable_set)
+    res = {k: "" for k in keys}
+    for s in custom_specs:
+        if s.get("name"):
+            res[s["name"]] = ""
+
+    # 1) Title gate first.
+    if not title_passes(title):
+        for k in list(res.keys()):
+            res[k] = "N/A"
+        res["ICPReview"] = "Non-ICP"
+        res["ICP_reason"] = "Title not a decision-maker"
+        res["_title_gate"] = "rejected"
+        res["_status"] = "ok"
+        return res, 0.002
+
+    res["_title_gate"] = "pass"
+
+    # 2) Crude company ICP demo (real version scrapes + uses the strict gate).
+    non_icp = any(w in website for w in ["shop", "store", "app.", "/pricing", "pricing.", "ecom"])
+    if non_icp:
+        for k in list(res.keys()):
+            res[k] = "N/A"
+        res["ICPReview"] = "Non-ICP"
+        res["ICP_reason"] = "Public pricing / low-value"
+        res["_status"] = "ok"
+        return res, 0.01
+
+    # 3) ICP -> fill built-in + custom variables.
+    res["ICPReview"] = "ICP"
+    res["ICP_reason"] = "Marketing/branding agency"
+    for k in keys:
+        if k in ALWAYS_KEYS:
+            continue
+        res[k] = _demo_value(k, company)
+    for s in custom_specs:
+        if s.get("name"):
+            res[s["name"]] = fill_custom(s, lead)
+    res["_status"] = "ok"
+    return res, round(0.024 + 0.004 * len(custom_specs), 4)
+
+
+def enrich(lead, variable_set, selected=None, custom_specs=None):
+    """Entry point used by the job runner. Switches on ENRICH_MODE."""
+    if os.getenv("ENRICH_MODE", "demo").lower() == "real":
+        return _real_enrich(lead, variable_set, selected)
+    return demo_enrich(lead, variable_set, selected, custom_specs)
+
+
+def _real_enrich(lead, variable_set, selected=None):
+    """Lazy hook into the actual engine. Off by default; needs OPENAI_API_KEY and
+    the engine's deps installed. Left thin until integration docs land."""
+    raise NotImplementedError(
+        "Real enrichment is not wired yet. Set ENRICH_MODE=demo for now. "
+        "Real mode will import engine/run.py process_row once keys + provider docs are in."
+    )

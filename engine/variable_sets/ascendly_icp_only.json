@@ -1,0 +1,41 @@
+{
+  "variable_set_name": "ascendly_icp_only",
+  "profile_version": "icp_only_v1",
+  "icp_only": true,
+  "output_keys": [
+    "ICPReview",
+    "ICP_reason"
+  ],
+  "global_output_rules": [
+    "Only two outputs are produced: ICPReview and ICP_reason.",
+    "ICPReview must be exactly ICP or Non-ICP.",
+    "ICP_reason must always be filled in 3 to 5 words, for both ICP and Non-ICP.",
+    "No personalization copy is written in this mode."
+  ],
+  "variables": [
+    {
+      "name": "ICPReview",
+      "format_lock": true,
+      "min_words": 1,
+      "max_words": 1,
+      "fallback": "Non-ICP",
+      "allowed_values": [
+        "ICP",
+        "Non-ICP"
+      ],
+      "purpose": "Decide whether the prospect is a fit for the client's ICP."
+    },
+    {
+      "name": "ICP_reason",
+      "format_lock": false,
+      "min_words": 3,
+      "max_words": 5,
+      "fallback": "",
+      "purpose": "In 3 to 5 words, explain why the company is ICP or why it is Non-ICP."
+    }
+  ],
+  "final_json_output_schema": {
+    "ICPReview": "",
+    "ICP_reason": ""
+  }
+}

@@ -1,0 +1,176 @@
+{
+  "client_name": "insightgeo",
+  "website": "https://www.insightgeo.ai/",
+  "profile_version": "client_profile_icp_v1",
+  "service_brief": "InsightGEO helps B2B companies understand and improve how they appear inside AI-powered research tools like ChatGPT, Claude, Gemini, and Perplexity. As buyers increasingly ask AI assistants who the best providers, platforms, or vendors are, InsightGEO measures how often a company shows up in those answers, where competitors are recommended instead, and what can be done to improve visibility and consideration during AI-assisted buyer research.",
+  "main_offer": "InsightGEO tests real buyer questions across major AI platforms, measures a company's visibility by topic, identifies where competitors are recommended instead, and delivers practical, prioritized recommendations that strengthen buyer discovery and consideration over time. Instead of guessing what AI tools say about a company, clients get a clear view of how they are represented and where the opportunities are.",
+  "what_we_are_pitching": "We are pitching InsightGEO as the way for B2B companies to see and improve how AI assistants represent and recommend them during buyer research. We are not pitching traditional SEO, content marketing, or paid advertising, and we never promise guaranteed rankings, guaranteed recommendations, or instant results.",
+  "target_outcome": "InsightGEO helps clients increase visibility during AI-assisted research, improve how often they are recommended across major AI platforms, identify competitor recommendation gaps, strengthen buyer consideration before prospects reach the website, and improve inclusion in AI-generated vendor shortlists.",
+  "icp_summary": "InsightGEO primarily targets B2B companies whose buyers research, compare, and evaluate vendors before purchasing, and where being recommended by ChatGPT, Claude, Gemini, Perplexity, and other AI assistants can directly impact revenue. Ideal companies have established marketing teams, multiple competitors, high-value customers, long buying cycles, and rely on trust, authority, content, reviews, and thought leadership.",
+  "icp": {
+    "primary_fit": "B2B companies with high-value products or services, real competitors, and a research-driven buying process, whose prospects ask AI tools questions like best software, best provider, best platform, top alternatives, or who should I choose.",
+    "company_characteristics": [
+      "Sells a high-value B2B product or service",
+      "Has multiple direct competitors",
+      "Buyers research and compare vendors before purchasing",
+      "Long or considered buying cycle",
+      "High customer lifetime value",
+      "Established marketing team",
+      "Relies on trust, authority, content, reviews, and thought leadership",
+      "Would benefit from being recommended by AI assistants during research"
+    ],
+    "decision_makers": [
+      "Founders",
+      "CEOs",
+      "CMOs",
+      "VP Marketing",
+      "Heads of Demand Generation",
+      "Heads of Growth",
+      "Brand and Communications leaders",
+      "Marketing Directors",
+      "RevOps leaders"
+    ],
+    "core_industries": {
+      "technology": [
+        "B2B SaaS companies",
+        "Cybersecurity providers",
+        "Cloud infrastructure providers",
+        "Enterprise software companies",
+        "Fintech platforms",
+        "Healthcare technology companies",
+        "HR technology companies",
+        "IT services and managed service providers"
+      ],
+      "financial_services": [
+        "Financial services firms",
+        "Insurance companies",
+        "Wealth management firms",
+        "Accounting and tax firms"
+      ],
+      "professional_services": [
+        "Consulting firms",
+        "Legal services firms",
+        "Digital transformation companies",
+        "Recruiting firms",
+        "Workplace training companies",
+        "Professional service firms"
+      ],
+      "healthcare": [
+        "Healthcare technology companies",
+        "Hospitals and multi-location healthcare groups"
+      ],
+      "other_high_consideration": [
+        "Commercial real estate firms",
+        "Property management companies",
+        "Ecommerce brands with $5M+ revenue",
+        "Travel and hospitality brands",
+        "Higher education institutions",
+        "Franchise organizations",
+        "Manufacturing and industrial technology companies",
+        "Commercial and industrial service providers"
+      ]
+    }
+  },
+  "non_icp": {
+    "summary": "Non-ICP companies are local-first, referral-driven, or walk-in dependent businesses, or those selling low-ticket products and services, where purchases happen immediately or locally with little research and AI recommendations are unlikely to influence buying decisions.",
+    "non_fit_categories": [
+      "Restaurants",
+      "Cafes",
+      "Bars and nightclubs",
+      "Food trucks",
+      "Local plumbers",
+      "Electricians",
+      "Painters",
+      "Cleaning companies",
+      "Small gyms",
+      "Salons and barbershops",
+      "Auto repair shops",
+      "Convenience stores",
+      "Small retail shops",
+      "Single-location medical practices",
+      "Small dental offices",
+      "Individual realtors",
+      "Freelancers",
+      "Solopreneurs",
+      "Life coaches",
+      "Business coaches",
+      "Influencers",
+      "Artists",
+      "Musicians",
+      "Authors",
+      "Small nonprofits",
+      "Religious organizations"
+    ],
+    "non_fit_signals": [
+      "Local-first business",
+      "Referral-driven or word-of-mouth dependent",
+      "Walk-in traffic dependent",
+      "Low-ticket products or services",
+      "Fast purchase decisions with little research",
+      "Depends on Google Maps, local directories, or social media rather than AI research",
+      "Low customer value",
+      "Few or no real competitors being compared",
+      "AI visibility would have limited impact on revenue"
+    ]
+  },
+  "icp_review_rules": [
+    "Return ICP if the company sells a high-value B2B product or service, has competitors, and relies on buyers researching and comparing vendors before purchasing.",
+    "Return ICP if the company fits B2B SaaS, cybersecurity, cloud infrastructure, IT services or MSPs, enterprise software, fintech, financial services, insurance, wealth management, healthcare technology, hospitals, legal, accounting, consulting, digital transformation, commercial real estate, property management, larger ecommerce brands, travel and hospitality, higher education, franchises, or manufacturing and industrial technology.",
+    "Return ICP if buyers would plausibly ask AI tools things like best software, best provider, best platform, top alternatives, or who should I choose when researching this company's category.",
+    "Return Non-ICP if the business is local-first, referral-driven, walk-in dependent, or low-ticket, such as restaurants, salons, local trades, small retail, single-location practices, freelancers, solopreneurs, coaches, influencers, artists, small nonprofits, or religious organizations.",
+    "Return Non-ICP if purchases happen immediately or locally with little research, or where AI recommendations are unlikely to influence buying decisions.",
+    "If unsure, classify ICP when the company sells a high-value product or service, has competitors, and has a research-driven buying process, and Non-ICP otherwise.",
+    "If ICPReview is Non-ICP, all writing variables should return N/A.",
+    "If ICPReview is ICP, generate all writing variables using only the website content and CSV row context."
+  ],
+  "icp_review_output": {
+    "field_name": "ICPReview",
+    "allowed_values": [
+      "ICP",
+      "Non-ICP"
+    ],
+    "format": "Return ICP or Non-ICP only.",
+    "purpose": "Decide whether the company is a good fit for InsightGEO's service that measures and improves how the company is discovered and recommended inside AI research tools."
+  },
+  "research_guidance": {
+    "goal": "Understand whether the prospect is a high-value B2B company with competitors and a research-driven buying process, where buyers would use AI tools to find and compare vendors, and find specific, real signals to personalize around.",
+    "priority_pages": [
+      "Homepage",
+      "Solutions page",
+      "Products page",
+      "Services page",
+      "Industries page",
+      "Customers or case studies page",
+      "Resources or blog page",
+      "About page",
+      "Pricing page"
+    ],
+    "specific_items_to_extract": [
+      "company category",
+      "industry",
+      "products or services offered",
+      "target customers and buyer personas",
+      "B2B positioning",
+      "competitor or comparison language",
+      "high-value or enterprise positioning",
+      "evidence of content, thought leadership, or reviews",
+      "signals of a long or considered buying cycle",
+      "notable products, services, or differentiators to personalize around"
+    ]
+  },
+  "global_rules": [
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, services, industries, numbers, results, funding, awards, partnerships, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Keep language simple, direct, specific, and practical.",
+    "Avoid generic praise like great website, impressive work, amazing services, strong online presence, innovative solutions, and professional team.",
+    "Avoid robotic words like leverage, robust, seamless, scalable, synergy, transformative, game-changing, cutting-edge, future-ready, unlock, empower, and elevate.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "Do not start any variable with a person's name.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact."
+  ]
+}

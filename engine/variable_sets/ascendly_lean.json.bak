@@ -1,0 +1,344 @@
+{
+  "variable_set_name": "ascendly_lean",
+  "profile_version": "variables_lean_v1",
+  "temperature": 0.15,
+  "max_tokens": 2000,
+  "output_keys": [
+    "ICPReview",
+    "personalized_first_line",
+    "product_complimentary",
+    "industry_company_category",
+    "what_we_saw",
+    "ideal_customers_set_1",
+    "ideal_customers_set_2",
+    "service_short_form",
+    "service_to_hear_long_form",
+    "elon_musk_full_email"
+  ],
+  "global_output_rules": [
+    "Return one valid JSON object only.",
+    "Do not return markdown, notes, explanations, code fences, or text outside JSON.",
+    "Final output must use exactly these top-level keys: ICPReview, personalized_first_line, product_complimentary, industry_company_category, what_we_saw, ideal_customers_set_1, ideal_customers_set_2, service_short_form, service_to_hear_long_form, elon_musk_full_email.",
+    "Every generated value must be a string.",
+    "Do not wrap the answer inside a variables object.",
+    "If ICPReview is Non-ICP, return N/A for every other variable.",
+    "If ICPReview is ICP, generate every other variable using the best available website facts.",
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, case studies, projects, services, results, numbers, industries, awards, partnerships, locations, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Avoid generic praise like great website, impressive work, amazing services, strong online presence, innovative solutions, and professional team.",
+    "Avoid robotic words like leverage, robust, seamless, scalable, synergy, transformative, game-changing, cutting-edge, future-ready, unlock, empower, and elevate.",
+    "Avoid weak cold email phrases like quick question, just checking in, touching base, circling back, hope you are well, and I came across.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "Do not start any variable with a person's name.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact.",
+    "No content or key terms should repeat within the same prospect unless there is no other accurate way to say it."
+  ],
+  "research_focus": [
+    "company category",
+    "industry",
+    "specific services",
+    "specific products",
+    "named service lines",
+    "named features",
+    "case study names",
+    "client names",
+    "portfolio projects",
+    "customer logos",
+    "industries served",
+    "target customers",
+    "buyer personas",
+    "proof points",
+    "specialized positioning",
+    "unique value propositions",
+    "project types",
+    "service outcomes"
+  ],
+  "variation_rules": [
+    "Do not repeat the same target customer wording across ideal_customers_set_1 and ideal_customers_set_2.",
+    "Do not repeat the same service phrase in service_short_form, service_to_hear_long_form, and elon_musk_full_email unless unavoidable.",
+    "Use a different angle for personalized_first_line and product_complimentary.",
+    "If a company has case studies, use client or project names in elon_musk_full_email, not in every other variable.",
+    "If a company has no case studies, use specific service language instead of generic company praise.",
+    "Avoid repeating the same adjective more than once inside a prospect output."
+  ],
+  "variables": [
+    {
+      "name": "ICPReview",
+      "type": "classification",
+      "min_words": 1,
+      "max_words": 1,
+      "format_lock": true,
+      "allowed_values": [
+        "ICP",
+        "Non-ICP"
+      ],
+      "purpose": "Decide whether the prospect is a fit for the client's ICP.",
+      "instructions": [
+        "Return ICP or Non-ICP only.",
+        "Use the client profile ICP and non-ICP rules.",
+        "If the company is a high-value B2B, commercial, professional, industrial, technology, SaaS, consulting, healthcare, financial, legal, marketing, creative, IT, logistics, construction, or service business where booked meetings could create revenue, return ICP.",
+        "If the company is a restaurant, cafe, salon, gym, spa, tiny local consumer business, low-ticket store, affiliate site, creator business, hobby business, parked domain, unclear company, or not useful for outbound appointment setting, return Non-ICP."
+      ],
+      "fallback": "Non-ICP"
+    },
+    {
+      "name": "personalized_first_line",
+      "type": "copy",
+      "min_words": 15,
+      "max_words": 18,
+      "format_lock": false,
+      "purpose": "Write a concise personalized first line based on one specific website detail.",
+      "instructions": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Write 15 to 18 words.",
+        "Use one sentence only.",
+        "Capitalize the first letter.",
+        "Reference a specific service, client type, project type, industry focus, compliance signal, transaction volume, or specialized positioning.",
+        "Do not start with I noticed, I saw, I came across, or your website.",
+        "Do not mention the client company.",
+        "Do not end with a question.",
+        "Do not use the em dash character.",
+        "Do not sound like a generic compliment.",
+        "Make it specific enough that it could not be sent unchanged to another company."
+      ],
+      "good_examples": [
+        "Your hands-on M&A advisory focus for privately held consumer and healthcare businesses shows serious deal craftsmanship and credibility.",
+        "Navigating complex environmental regulations across New England while delivering practical geoenvironmental solutions is no small responsibility.",
+        "Your PCI, HIPAA & SOC II compliant cloud infrastructure positioning across healthcare and finance is seriously well built."
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "product_complimentary",
+      "type": "copy",
+      "min_words": 16,
+      "max_words": 22,
+      "format_lock": true,
+      "fixed_format": "By the way, your {{specific_product_service_or_feature}} {{specific_positive_observation}}, {{soft_question}}?",
+      "purpose": "Compliment a specific product, service, feature, model, approach, or proof point with a natural question.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Must follow the fixed format exactly.",
+        "Must start with: By the way, your",
+        "Must end with a question mark.",
+        "Must be 16 to 22 words.",
+        "Must name something specific from the website.",
+        "Do not use amazing, incredible, outstanding, great, or impressive.",
+        "Do not use the em dash character."
+      ],
+      "placeholder_rules": {
+        "specific_product_service_or_feature": "Use a specific term and real service, product, feature, method, approach, model, case study type, or specialty from the website.",
+        "specific_positive_observation": "Use a specific observation, such as feels founder-aligned, is sharp, looks practical, feels buyer-ready, stands out, is well-positioned, feels highly focused, or speaks directly to serious buyers.",
+        "soft_question": "Ask a natural question tied to that specific service or feature, such as is that your core differentiator, is that driving most demand, is that your fastest-growing segment, is that your biggest competitive edge, or is that attracting your newest buyer interest."
+      },
+      "good_examples": [
+        "By the way, your high-service M&A advisory model feels very founder-aligned, is that your core differentiator?",
+        "By the way, your Brownfield redevelopment expertise feels highly focused, is that driving complex engagements lately?",
+        "By the way, your AI-powered SEO and bilingual targeting model is sharp, is Hispanic outreach your fastest-growing segment?"
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "industry_company_category",
+      "type": "copy",
+      "min_words": 3,
+      "max_words": 5,
+      "format_lock": false,
+      "purpose": "Identify the prospect's specific industry or company category.",
+      "instructions": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Write 3 to 5 words.",
+        "Capitalize the first letter.",
+        "Be specific to what the company does.",
+        "Do not use generic labels like Business, Company, Services, or Agency unless paired with a specific category.",
+        "Do not write a full sentence.",
+        "Should end with terms like companies, firms, agencies, platforms, providers, or similar terms whenever natural.",
+        "Do not use the em dash character."
+      ],
+      "good_examples": [
+        "Creative Design Firms",
+        "Branding Strategy Firms",
+        "PPC Advertising Agencies",
+        "M&A Advisory Firms",
+        "Environmental Consulting Firms",
+        "Healthcare Compliance Platforms"
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "what_we_saw",
+      "type": "copy",
+      "min_words": 15,
+      "max_words": 18,
+      "format_lock": true,
+      "fixed_format": "I have seen your {{specific_unique_observation}}.",
+      "purpose": "Summarize a specific unique value proposition, client type, project type, or proof point that caught attention.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Must follow the fixed format exactly.",
+        "Must start exactly with: I have seen your",
+        "Must be 15 to 18 words.",
+        "Must be one sentence.",
+        "Must be highly personalized.",
+        "Must reference clients, projects, specialized positioning, unique value propositions, or proof points from the website.",
+        "Do not use the em dash character."
+      ],
+      "placeholder_rules": {
+        "specific_unique_observation": "Write a specific 11 to 14 word observation about their unique value, clients, projects, specialization, or proof. It should feel like something that caught attention during research."
+      },
+      "good_examples": [
+        "I have seen your higher education redesign work tied to enrollment growth and digital transformation.",
+        "I have seen your healthcare compliance positioning across PCI, HIPAA & SOC II-sensitive infrastructure.",
+        "I have seen your capital markets advisory depth across securitization, structured finance & institutional transactions."
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "ideal_customers_set_1",
+      "type": "copy",
+      "min_words": 6,
+      "max_words": 18,
+      "format_lock": true,
+      "fixed_format": "{{target_1}}, {{target_2}}, & {{target_3}}",
+      "purpose": "Identify three ideal customer types using a mix of industries and decision makers.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Must follow the fixed format exactly.",
+        "Must include exactly three target customer types.",
+        "Use a mix of industry and decision-maker language.",
+        "Use target customers based on the website, case studies, services, or industries served.",
+        "Do not write a sentence.",
+        "Do not repeat the same wording used in ideal_customers_set_2.",
+        "Do not use the em dash character."
+      ],
+      "good_examples": [
+        "E-commerce owners, SMB decision makers, & tech enterprise teams",
+        "Healthcare founders, finance leaders, & compliance-heavy operators",
+        "Property owners, asset managers, & commercial developers"
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "ideal_customers_set_2",
+      "type": "copy",
+      "min_words": 8,
+      "max_words": 22,
+      "format_lock": true,
+      "fixed_format": "{{target_1}}, {{target_2}}, {{target_3}}, & {{target_4}}",
+      "purpose": "Identify four ideal customer types using a different mix of industries and decision makers.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Must follow the fixed format exactly.",
+        "Must include exactly four target customer types.",
+        "Use a mix of industry and decision-maker language.",
+        "Use target customers based on the website, case studies, services, or industries served.",
+        "Do not write a sentence.",
+        "Do not repeat the same wording used in ideal_customers_set_1.",
+        "Do not use the em dash character."
+      ],
+      "good_examples": [
+        "DTC founders, Shopify operators, retention marketers, & ecommerce executives",
+        "Institutional investors, family offices, software founders, & strategic acquirers",
+        "Healthcare systems, fintech teams, insurance leaders, & compliance officers"
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "service_short_form",
+      "type": "copy",
+      "min_words": 1,
+      "max_words": 4,
+      "format_lock": false,
+      "purpose": "Write a short version of the prospect's service to complete: to your calendar to hear your service.",
+      "instructions": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Write 1 to 4 words.",
+        "Use the service the prospect provides.",
+        "Do not write a sentence.",
+        "Make it simple and natural after the phrase: to your calendar to hear your.",
+        "Do not use the em dash character."
+      ],
+      "good_examples": [
+        "M&A advisory pitch",
+        "SEO strategy",
+        "compliance platform",
+        "retention strategy",
+        "cybersecurity assessment"
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "service_to_hear_long_form",
+      "type": "copy",
+      "min_words": 14,
+      "max_words": 32,
+      "format_lock": true,
+      "fixed_format": "to hear how you can help them {{service_and_outcome}}.",
+      "purpose": "Write a longer service phrase explaining what the prospect helps target customers achieve.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Must follow the fixed format exactly.",
+        "Must start exactly with: to hear how you can help them",
+        "Must be 14 to 32 words.",
+        "Must explain what service the prospect provides and how it helps their ICP.",
+        "Do not repeat the exact wording from service_short_form.",
+        "Do not use the em dash character."
+      ],
+      "good_examples": [
+        "to hear how you can help them drive more qualified meetings through a stronger revenue engine.",
+        "to hear how you can help them modernize higher education websites that support enrollment growth.",
+        "to hear how you can help them protect regulated data without adding infrastructure complexity."
+      ],
+      "fallback": "N/A"
+    },
+    {
+      "name": "elon_musk_full_email",
+      "type": "copy",
+      "min_words": 38,
+      "max_words": 65,
+      "format_lock": true,
+      "conditional_formats": {
+        "if_case_studies_or_projects_exist": "{{case_study_1}}. {{case_study_2}}. {{case_study_3}}. {{portfolio_compliment_5_to_7_words}}.\nBut, your next client shouldn't be lucky. Rather, {{target_customer_1}}, {{target_customer_2}}, & {{target_customer_3}} should come from a revenue engine that keeps your calendar full of qualified meetings.\nWe fix that.",
+        "if_case_studies_or_projects_do_not_exist": "Clients for {{service_they_provide}}?\nYour next client shouldn't be a guessing game. Rather, {{target_customer_1}}, {{target_customer_2}}, & {{target_customer_3}} should come from a simple, organized setup that keeps your calendar full of great meetings."
+      },
+      "purpose": "Write a short full email in the Elon-style format, using case studies when available and service-based framing when not available.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Use the case-study format if named case studies, named clients, named projects, portfolio items, or customer logos are visible.",
+        "Use the no-case-study format if no case studies, clients, projects, portfolio items, or customer logos are visible.",
+        "Do not mix the two formats.",
+        "Do not add a greeting.",
+        "Do not add a subject line.",
+        "Do not add a signature.",
+        "Do not add a CTA.",
+        "Do not ask for a meeting.",
+        "Do not mention the client company.",
+        "Do not use the em dash character.",
+        "Keep it short and direct.",
+        "Preserve line breaks between format sections."
+      ],
+      "good_examples": [
+        "Thermetrics. United Pet Care. Lamb & Co. That portfolio has weight.\nBut, your next client shouldn't be lucky. Rather, pet care operators, home service brands, & growth-stage founders should come from a revenue engine that keeps your calendar full of qualified meetings.\nWe fix that.",
+        "Clients for retention marketing?\nYour next client shouldn't be a guessing game. Rather, Shopify founders, DTC operators, & brand managers should come from a simple, organized setup that keeps your calendar full of great meetings."
+      ],
+      "fallback": "N/A"
+    }
+  ],
+  "final_json_output_schema": {
+    "ICPReview": "",
+    "personalized_first_line": "",
+    "product_complimentary": "",
+    "industry_company_category": "",
+    "what_we_saw": "",
+    "ideal_customers_set_1": "",
+    "ideal_customers_set_2": "",
+    "service_short_form": "",
+    "service_to_hear_long_form": "",
+    "elon_musk_full_email": ""
+  }
+}

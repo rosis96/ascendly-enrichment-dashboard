@@ -1,0 +1,400 @@
+{
+  "client_name": "ascendly",
+  "website": "https://ascendly.one/",
+  "profile_version": "client_profile_icp_v2",
+
+  "service_brief": "Ascendly is a full-stack revenue marketing agency that helps B2B companies close more clients by building and operating end-to-end revenue systems. Ascendly handles the entire revenue pipeline from prospect identification, list building, outbound campaigns, LinkedIn outreach, cold calling coordination, lead enrichment, AI-personalized messaging, buying-signal tracking, website visitor identification, omnichannel retargeting, automated follow-up, CRM routing, and pipeline reporting into one managed system.",
+
+  "main_offer": "Ascendly builds and runs done-for-you revenue systems that combine outbound prospecting, inbound lead capture, cold email, LinkedIn outreach, phone outreach, prospect enrichment, intent signal tracking, website visitor identification, cold email retargeting via paid ads, multi-channel follow-up automation, and pipeline visibility into one compounding system that generates and closes more clients predictably.",
+
+  "what_we_are_pitching": "We are pitching Ascendly as a done-for-you revenue marketing partner for B2B companies that sell high-value products or services, have long or consultative sales cycles, and need a reliable, scalable system to generate qualified conversations and close more contracts without adding internal headcount.",
+
+  "target_outcome": "Ascendly helps clients close more clients, reduce reliance on referrals or inbound-only demand, keep prospects warm and engaged across multiple channels, eliminate pipeline gaps, and build a predictable path to revenue growth.",
+
+  "problems_we_solve": [
+    "No consistent flow of qualified new business conversations",
+    "Over-reliance on referrals, word of mouth, or inbound-only pipeline",
+    "Deals going cold because no systematic follow-up exists after first contact",
+    "Sales team spending time on unqualified or low-fit prospects",
+    "Pipeline is unpredictable and revenue is hard to forecast",
+    "Good leads visiting the website but never identified or followed up with",
+    "Outreach going to the wrong people with the wrong message",
+    "No visibility into where deals are stalling or dropping off",
+    "Marketing and sales operating in silos with no connected system",
+    "Company expanding into new markets or verticals with no established pipeline",
+    "Wasted ad spend on audiences that have never shown any intent",
+    "No multi-channel presence meaning prospects are only touched once and forgotten",
+    "Founder or leadership spending too much time on prospecting instead of closing",
+    "No process for re-engaging stalled or lost opportunities"
+  ],
+
+  "customer_challenges": {
+    "pipeline_and_prospecting": [
+      "Inconsistent or unpredictable pipeline month to month",
+      "No repeatable outbound system that generates qualified conversations",
+      "Relying entirely on referrals with no control over when new business arrives",
+      "Difficulty identifying and reaching the right decision-makers at target companies",
+      "Prospecting lists that are inaccurate, unverified, or poorly targeted",
+      "No way to identify which website visitors are actually potential buyers"
+    ],
+    "outreach_and_messaging": [
+      "Cold outreach that sounds generic and gets ignored or marked as spam",
+      "Messaging that leads with features and process instead of outcomes and results",
+      "Outreach that lacks personalization and fails to connect with the prospect's actual situation",
+      "No multi-channel outreach strategy meaning prospects are only contacted once",
+      "Email deliverability issues that prevent messages from reaching inboxes",
+      "No follow-up sequence after an initial email or LinkedIn message"
+    ],
+    "conversion_and_follow_up": [
+      "Deals going cold after initial interest because no structured follow-up exists",
+      "Meetings booked but not converting because prospects are not properly warmed up",
+      "No system to re-engage prospects who showed interest but did not move forward",
+      "Long sales cycles where prospects lose momentum between touches",
+      "No automated process to keep warm prospects engaged across weeks or months",
+      "Opportunities being lost simply because nobody followed up at the right time"
+    ],
+    "visibility_and_reporting": [
+      "No clear view of where deals are in the pipeline at any given time",
+      "Unable to track which outreach activities are generating real revenue",
+      "No data connecting marketing activity to closed contracts",
+      "Leadership cannot forecast revenue because pipeline is too unpredictable",
+      "No way to identify which prospects are showing buying intent signals"
+    ],
+    "growth_and_scale": [
+      "Expanding into new markets or verticals with no pipeline infrastructure in place",
+      "Founder or sales leader doing all prospecting manually with no scalable process",
+      "Hiring more salespeople but having no system to feed them qualified conversations",
+      "Losing deals to competitors who are more visible and present across multiple channels",
+      "Paying for ads but targeting audiences who have never shown any intent or interest"
+    ]
+  },
+
+  "results_we_bring": {
+    "universal_outcomes": [
+      "Consistent flow of qualified sales conversations with decision-makers",
+      "Predictable pipeline that makes revenue forecasting possible",
+      "Reduced dependence on referrals and inbound-only demand",
+      "More closed contracts without adding internal sales or marketing headcount",
+      "Decision-makers warmed up and educated before the first sales conversation",
+      "No deal going cold due to lack of follow-up",
+      "Full visibility into pipeline performance and where revenue is coming from"
+    ],
+    "by_company_type": {
+      "b2b_saas_and_technology": [
+        "Consistent demo pipeline with qualified buyers who match the ICP",
+        "Shorter sales cycles because prospects are educated and warmed up before the call",
+        "Expansion into new verticals or geographies with outbound infrastructure already built"
+      ],
+      "it_services_and_consulting": [
+        "Steady flow of qualified project conversations without relying on referrals",
+        "More retainer or long-term contract opportunities surfaced through systematic outreach",
+        "Decision-makers at target accounts identified and engaged before competitors reach them"
+      ],
+      "professional_and_business_services": [
+        "Predictable new client flow replacing inconsistent referral-based growth",
+        "Higher quality conversations because outreach is specific to the prospect's situation",
+        "Faster growth into new industries or regions through targeted outbound campaigns"
+      ],
+      "industrial_and_traditional_industries": [
+        "More qualified project inquiries from commercial buyers and procurement contacts",
+        "Pipeline built in new geographies or verticals without a local sales presence",
+        "Long-cycle deals kept warm and progressed systematically until a decision is made"
+      ],
+      "healthcare_and_life_sciences": [
+        "Qualified conversations with hospital administrators, practice managers, or procurement leaders",
+        "Compliant outreach that builds trust with risk-averse buyers over time",
+        "Predictable pipeline for high-value contracts in a complex buying environment"
+      ]
+    }
+  },
+
+  "what_we_do": {
+    "summary": "Ascendly operates a full-stack revenue system across outbound, inbound, and multi-channel follow-up. Every component is designed to generate, warm, and close qualified pipeline.",
+    "capabilities": [
+      {
+        "name": "Outbound Cold Email",
+        "description": "Hyper-personalized cold email campaigns sent at scale using verified, enriched prospect lists and AI-assisted personalization. Built for deliverability and reply rates, not just volume."
+      },
+      {
+        "name": "LinkedIn Outreach",
+        "description": "Targeted LinkedIn connection and messaging sequences to reach decision-makers who do not respond to email, running in parallel with cold email for multi-channel coverage."
+      },
+      {
+        "name": "Cold Calling Coordination",
+        "description": "Outbound phone outreach coordinated alongside email and LinkedIn to increase contact rates and surface warm opportunities faster."
+      },
+      {
+        "name": "Prospect Identification & List Building",
+        "description": "ICP-based prospecting using intent signals, buying triggers, job change alerts, hiring signals, and tech stack data to identify the right companies and contacts before any outreach begins."
+      },
+      {
+        "name": "Lead Enrichment & Verification",
+        "description": "Every prospect is enriched with verified contact data, company signals, and contextual information before outreach so messaging is accurate, relevant, and personalized."
+      },
+      {
+        "name": "Website Visitor Identification",
+        "description": "Identifying companies and decision-makers visiting the client's website even if they never fill out a form, then routing them into outreach or follow-up sequences automatically."
+      },
+      {
+        "name": "Buying Signal & Intent Tracking",
+        "description": "Monitoring job change triggers, hiring signals, tech stack changes, and other intent indicators to time outreach when a prospect is most likely to buy."
+      },
+      {
+        "name": "Cold Email Retargeting via Paid Ads",
+        "description": "Uploading only the prospects who clicked links in cold emails into LinkedIn Matched Audiences or Meta Custom Audiences so ad spend targets only people who already showed interest, not cold audiences."
+      },
+      {
+        "name": "Multi-Channel Follow-Up Automation",
+        "description": "Automated follow-up sequences across email, LinkedIn, and other channels so no prospect goes cold after initial contact. Every touch is timed and contextual."
+      },
+      {
+        "name": "Inbound Lead Capture & Routing",
+        "description": "Capturing every inbound lead from website forms, ad clicks, and other sources, enriching them automatically, qualifying them against the ICP, and routing them to the right person or sequence instantly."
+      },
+      {
+        "name": "Deal Re-Engagement",
+        "description": "Systematically re-engaging stalled or cold deals in the pipeline with new angles, updated messaging, and fresh touchpoints so opportunities are worked until there is a clear outcome."
+      },
+      {
+        "name": "CRM Integration & Pipeline Routing",
+        "description": "All leads, prospects, and deal activity synced and routed through the client's CRM so nothing falls through the cracks and the sales team always knows what to do next."
+      },
+      {
+        "name": "Pipeline Visibility & Reporting",
+        "description": "Real-time reporting on pipeline created, deals progressed, meetings booked, and revenue generated so clients always know what the system is producing and where to focus."
+      }
+    ]
+  },
+
+  "icp_summary": "Ascendly targets B2B companies with high-value products or services, long or consultative sales cycles, and a clear need for predictable pipeline. Ideal clients sell contracts worth $10K to $1M+ and need consistent qualified conversations with decision-makers such as founders, executives, VPs, and Directors.",
+
+  "icp": {
+    "primary_fit": "B2B companies with high-value products or services, long or consultative sales cycles, strong customer lifetime value, and a need for consistent qualified meetings and closed contracts.",
+    "company_characteristics": [
+      "Annual revenue typically between $1M and $500M+",
+      "Products or services worth $10K to $1M+ per contract",
+      "Dedicated sales team or founder-led sales motion",
+      "Need for qualified conversations with decision-makers",
+      "Selling into mid-market, commercial, or enterprise accounts",
+      "Long or consultative buying process",
+      "Strong lifetime customer value",
+      "Expanding into new markets, verticals, or geographies",
+      "Looking for predictable outbound pipeline instead of relying only on referrals or inbound",
+      "No pricing listed publicly, indicating a consultative or custom sales process",
+      "Clear B2B positioning with identifiable target buyers"
+    ],
+    "decision_makers": [
+      "Founders",
+      "CEOs",
+      "CMOs",
+      "CROs",
+      "VP of Sales",
+      "VP of Marketing",
+      "VP of Business Development",
+      "Revenue leaders",
+      "Growth leaders",
+      "Business development leaders",
+      "Directors",
+      "C-suite executives",
+      "Heads of Partnerships",
+      "Managing Directors",
+      "General Managers"
+    ],
+    "core_industries": {
+      "technology_and_saas": [
+        "B2B SaaS platforms",
+        "Enterprise software companies",
+        "AI and machine learning companies",
+        "Fintech and payments providers",
+        "Cybersecurity firms",
+        "Cloud infrastructure providers",
+        "HR tech and workforce management platforms",
+        "Martech and AdTech companies",
+        "Healthcare software and HealthTech companies",
+        "Data and analytics platforms",
+        "IoT and telecom technology companies",
+        "EV infrastructure and energy technology companies",
+        "PropTech and real estate technology platforms",
+        "LegalTech companies",
+        "EdTech platforms serving institutions or enterprises"
+      ],
+      "it_services_and_consulting": [
+        "Software development agencies",
+        "Product engineering firms",
+        "Staff augmentation companies",
+        "IT consulting companies",
+        "Digital transformation providers",
+        "Managed service providers",
+        "Technology outsourcing companies",
+        "DevOps and cloud consulting firms",
+        "ERP and systems integration consultancies"
+      ],
+      "professional_and_business_services": [
+        "Marketing agencies",
+        "Creative and branding agencies",
+        "Video production companies",
+        "Market research firms",
+        "Business consulting firms",
+        "Financial advisory firms",
+        "Accounting and CFO services firms",
+        "Legal and compliance service providers",
+        "Recruiting and executive search firms",
+        "HR and talent management firms",
+        "PR and communications agencies",
+        "Training and organizational development firms"
+      ],
+      "industrial_and_traditional_industries": [
+        "Manufacturing companies",
+        "Industrial technology providers",
+        "Construction and modular building companies",
+        "Energy and sustainability firms",
+        "EV charging infrastructure companies",
+        "Facility management companies",
+        "Fire and safety service providers",
+        "Logistics and supply chain businesses",
+        "Commercial real estate services",
+        "Environmental services companies",
+        "Commercial cleaning and facilities companies with B2B contracts"
+      ],
+      "healthcare_and_life_sciences": [
+        "Healthcare providers selling B2B services",
+        "Medical technology companies",
+        "Telehealth platforms",
+        "Healthcare software vendors",
+        "Life sciences organizations",
+        "Pharmaceutical B2B companies",
+        "Healthcare staffing and consulting firms"
+      ],
+      "financial_services": [
+        "Wealth management firms targeting institutions or businesses",
+        "Commercial insurance brokers",
+        "Business lending and alternative finance companies",
+        "Accounting software vendors",
+        "Fractional CFO and financial consulting firms"
+      ]
+    }
+  },
+
+  "non_icp": {
+    "summary": "Non-ICP companies are businesses where outbound pipeline generation is unlikely to produce meaningful revenue because the offer is low-ticket, consumer-focused, nonprofit, publicly priced, local-only, or does not involve a consultative sales process with identifiable decision-makers.",
+    "non_fit_categories": [
+      "Nonprofit organizations and charities",
+      "Government agencies and public sector bodies",
+      "Educational institutions such as schools and universities",
+      "Restaurants, cafes, and food and beverage businesses",
+      "Salons, spas, barbershops, and beauty services",
+      "Gyms, fitness studios, and wellness centers",
+      "Small local consumer service businesses",
+      "Low-ticket ecommerce stores selling to consumers",
+      "Retail stores and brick-and-mortar consumer businesses",
+      "Freelancers and solo operators with no team or scalable offer",
+      "Creator businesses, influencers, and personal brand businesses",
+      "Affiliate marketing sites and content publishers",
+      "Hobby businesses and passion projects",
+      "Companies with publicly listed low-ticket pricing (under $3K per contract)",
+      "Subscription consumer apps with self-serve pricing pages",
+      "Companies selling exclusively to individual consumers with no B2B component",
+      "Real estate agents operating as individuals rather than commercial firms",
+      "Companies with no clear service, product, or target customer",
+      "Businesses where website appears parked, inactive, or under construction",
+      "Companies that explicitly state they do not work with outside vendors or agencies"
+    ],
+    "non_fit_signals": [
+      "No clear B2B offer or identifiable business buyer",
+      "Publicly listed pricing under $3K per transaction or contract",
+      "Self-serve signup or checkout with no sales process",
+      "Nonprofit or charity registration or language",
+      "Government or public sector entity",
+      "Mostly consumer walk-in or direct-to-consumer business model",
+      "No evidence of a sales team, sales process, or consultation step",
+      "No meaningful contract value or long-term customer relationship",
+      "Website is parked, inactive, or has no clear commercial offer",
+      "Company sells exclusively to local consumers with no scalable B2B motion",
+      "Founder appears to be a solo operator with no team and no scalable service",
+      "Company has no visible case studies, clients, or commercial positioning"
+    ]
+  },
+
+  "icp_review_rules": [
+    "Return ICP if the company is B2B or sells a high-value service, product, software, consulting, or commercial solution where qualified conversations with decision-makers could generate meaningful revenue.",
+    "Return ICP if the company fits technology, SaaS, IT services, consulting, professional services, industrial services, healthcare, financial services, legal, marketing, creative, logistics, construction, manufacturing, energy, or other high-value B2B categories.",
+    "Return ICP if the company appears to sell into mid-market, enterprise, commercial, professional, or institutional buyers.",
+    "Return ICP if the company likely has a consultative sales process, high lifetime customer value, high contract value, or a clear need for predictable pipeline.",
+    "Return ICP if the company has no public pricing listed, suggesting a consultative or custom sales motion.",
+    "Return Non-ICP if the company is a nonprofit, charity, government body, school, or university.",
+    "Return Non-ICP if the company publicly lists pricing under $3K per transaction with a self-serve or checkout model.",
+    "Return Non-ICP if the company is a restaurant, salon, gym, spa, cafe, small local consumer business, low-ticket store, creator business, affiliate site, hobby business, or unclear business.",
+    "Return Non-ICP if the company has no clear offer, no clear target customer, no visible business model, or no meaningful use for outbound appointment setting.",
+    "If the company is a local service business but sells high-value projects, commercial services, construction, roofing, legal, financial, healthcare, or B2B services, it can still be ICP.",
+    "If unsure, classify based on whether a qualified conversation with a decision-maker could realistically generate meaningful revenue for the company.",
+    "If ICPReview is Non-ICP, all writing variables should return N/A.",
+    "If ICPReview is ICP, generate all writing variables using only the website content and CSV row context."
+  ],
+
+  "icp_review_output": {
+    "field_name": "ICPReview",
+    "allowed_values": [
+      "ICP",
+      "Non-ICP"
+    ],
+    "format": "Return ICP or Non-ICP only.",
+    "purpose": "Decide whether the company is a good fit for Ascendly's done-for-you revenue system and pipeline generation service."
+  },
+
+  "research_guidance": {
+    "goal": "Understand whether the prospect company sells a high-value product or service to business buyers and whether a predictable outbound and multi-channel revenue system would generate meaningful new contracts for them.",
+    "priority_pages": [
+      "Homepage",
+      "Services page",
+      "Solutions page",
+      "Industries page",
+      "Case studies page",
+      "Portfolio page",
+      "Clients page",
+      "Customers page",
+      "Testimonials page",
+      "About page",
+      "Pricing page"
+    ],
+    "specific_items_to_extract": [
+      "company category",
+      "industry",
+      "services offered",
+      "products offered",
+      "target customers",
+      "industries served",
+      "buyer personas",
+      "case studies",
+      "client names",
+      "portfolio projects",
+      "contract value signals",
+      "enterprise or mid-market positioning",
+      "sales or consultation language",
+      "commercial services",
+      "B2B positioning",
+      "high-ticket offer indicators",
+      "pipeline need",
+      "nonprofit or government signals",
+      "public pricing signals",
+      "self-serve or checkout signals"
+    ]
+  },
+
+  "global_rules": [
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, services, industries, numbers, results, funding, awards, partnerships, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Keep language simple, direct, specific, and practical.",
+    "Avoid generic praise like great website, impressive work, amazing services, strong online presence, innovative solutions, and professional team.",
+    "Avoid robotic words like leverage, robust, seamless, scalable, synergy, transformative, game-changing, cutting-edge, future-ready, unlock, empower, and elevate.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "Do not start any variable with a person's name.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact.",
+    "Never lead with what we do or how we do it. Always lead with the outcome or result the prospect will get.",
+    "Never use the word appointments or meetings as the primary outcome. Use clients, contracts, pipeline, revenue, or closed deals instead."
+  ]
+}

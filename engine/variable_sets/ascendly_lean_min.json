@@ -1,0 +1,280 @@
+{
+  "variable_set_name": "ascendly_lean_min",
+  "profile_version": "variables_lean_v2",
+  "max_tokens": 2200,
+  "temperature": 0.75,
+  "output_keys": [
+    "ICPReview",
+    "ICP_reason",
+    "personalized_first_line",
+    "company_category",
+    "ideal_customers",
+    "product_complimentary",
+    "value_proposition"
+  ],
+  "global_output_rules": [
+    "Return one valid JSON object only.",
+    "Do not return markdown, notes, explanations, code fences, or text outside JSON.",
+    "Final output must use exactly these top-level keys: ICPReview, ICP_reason, personalized_first_line, company_category, ideal_customers, product_complimentary, value_proposition.",
+    "Every generated value must be a string.",
+    "First decide ICPReview using the client profile ICP rules, then fill ICP_reason.",
+    "ICP_reason must ALWAYS be filled, even when ICPReview is Non-ICP.",
+    "If ICPReview is Non-ICP, return N/A for every variable EXCEPT ICPReview and ICP_reason.",
+    "If ICPReview is ICP, generate every variable using the best available website facts.",
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, case studies, projects, services, results, numbers, industries, awards, partnerships, locations, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "company_name inside the value_proposition refers to the PROSPECT company, which is allowed; the contact's personal name is never allowed.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact."
+  ],
+  "variables": [
+    {
+      "name": "ICPReview",
+      "format_lock": true,
+      "min_words": 1,
+      "fallback": "Non-ICP",
+      "max_words": 1,
+      "allowed_values": [
+        "ICP",
+        "Non-ICP"
+      ],
+      "purpose": "Decide whether the prospect is a fit for the client's ICP."
+    },
+    {
+      "name": "ICP_reason",
+      "format_lock": false,
+      "min_words": 3,
+      "fallback": "",
+      "max_words": 5,
+      "purpose": "In 3 to 5 words, explain why the company is ICP or why it is Non-ICP."
+    },
+    {
+      "name": "personalized_first_line",
+      "format_lock": false,
+      "min_words": 8,
+      "fallback": "N/A",
+      "max_words": 28,
+      "purpose": "First line that proves real research about the prospect. An observation, not flattery. No pitch, no question.",
+      "writing_rules": [
+        "Mention ONE specific thing from their site: a product, platform, service, case study, project, metric, or differentiator.",
+        "Observation, not praise. No generic compliments, no exaggeration.",
+        "Do not pitch, do not ask a question, do not end with a question mark.",
+        "Natural and skimmable. Avoid: revolutionary, world-class, cutting-edge, groundbreaking."
+      ],
+      "good_examples": [
+        "Your browser-based cyber range removes a lot of the friction that slows down security training programs.",
+        "The way you combine ADA compliance with Drupal ecommerce creates a rare advantage for public-sector organizations.",
+        "Your Kairos EDU-Site Framework clearly solves CMS editing frustrations for higher education teams."
+      ]
+    },
+    {
+      "name": "company_category",
+      "format_lock": false,
+      "min_words": 2,
+      "fallback": "N/A",
+      "max_words": 5,
+      "purpose": "Categorize the company using the category they would call themselves.",
+      "must_end_with_one_of": [
+        "firms",
+        "companies",
+        "agencies",
+        "consultancies",
+        "platforms",
+        "providers",
+        "studios",
+        "operators",
+        "organizations"
+      ],
+      "instructions": [
+        "Use the category the company would call itself.",
+        "Avoid generic labels.",
+        "Use their actual market positioning."
+      ]
+    },
+    {
+      "name": "ideal_customers",
+      "format_lock": true,
+      "fixed_format": "{{target_1}}, {{target_2}}, & {{target_3}}",
+      "min_words": 6,
+      "fallback": "N/A",
+      "max_words": 18,
+      "purpose": "Identify three ideal customer types using a mix of industries and decision makers.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Exactly three target types in the form: A, B, & C.",
+        "Mix industry and decision-maker language, based on their site/services.",
+        "Not a sentence. No em dash."
+      ],
+      "good_examples": [
+        "E-commerce owners, SMB decision makers, & tech enterprise teams",
+        "Healthcare founders, finance leaders, & compliance-heavy operators"
+      ]
+    },
+    {
+      "name": "product_complimentary",
+      "format_lock": false,
+      "min_words": 12,
+      "fallback": "N/A",
+      "must_end_with_question_mark": true,
+      "max_words": 32,
+      "purpose": "A short specific compliment about their actual product/service/work, then ONE easy question about that same thing. Not a pitch.",
+      "rules": {
+        "must_do": [
+          "Name a specific product, service, feature, project, or resource from their site.",
+          "Ask exactly one easy (yes/no-style) question tied to that thing.",
+          "Light compliment, casual, company-specific (could not be reused for a competitor)."
+        ],
+        "must_not_do": [
+          "No generic or discovery questions like 'looking for more leads?'.",
+          "Don't pitch your service. Don't ask two questions.",
+          "No over-praise (amazing, incredible, world-class)."
+        ]
+      },
+      "good_examples": [
+        "One more thing, your CYRIN cyber range is sharp. Is that your flagship training product?",
+        "Your zero-knowledge architecture is a strong trust signal. Is that what users value most?",
+        "Your ADA-first Drupal ecommerce work is a rare combo. Are nonprofits your main market for that?"
+      ]
+    },
+    {
+      "name": "value_proposition",
+      "format_lock": true,
+      "min_words": 65,
+      "fallback": "N/A",
+      "max_words": 76,
+      "template": "We specialize in {{revenue_function}} for {{company_category}}, by {{ascendly_mechanism}}. And, I have seen how {{company_name}} {{personalized_observation}}. And, from our experience, {{ascendly_solution}} can improve {{company_name}}'s {{result_1}}, {{result_2}} & {{result_3}}.",
+      "mechanism_variants": [
+        "running highly targeted, personalized cold outreach and booking inbound leads before they leave your site",
+        "managing your full outbound engine and capturing interested visitors before they slip away",
+        "combining personalized cold outreach with website visitor capture and same-day booking",
+        "running done-for-you outbound and turning quiet website traffic into booked calls",
+        "handling outbound end to end and catching inbound leads the moment they show intent",
+        "pairing targeted cold outreach with inbound capture so no interested visitor goes unbooked"
+      ],
+      "solution_variants": [
+        "a managed outbound and inbound booking system",
+        "a consistent outbound engine",
+        "an end-to-end lead booking system",
+        "done-for-you outbound paired with inbound capture",
+        "a full-funnel booking engine",
+        "personalized outreach plus website visitor capture"
+      ],
+      "offer_summary": {
+        "what_we_do": [
+          "Fully manage the client's outbound system.",
+          "Run highly targeted, personalized cold outreach.",
+          "Capture inbound leads that slip away before they leave the website.",
+          "Identify interested visitors and book them onto the calendar.",
+          "Help clients use 100% of their lead flow so no lead leaks."
+        ],
+        "we_never_pitch": [
+          "enrichment",
+          "data enrichment",
+          "individual features",
+          "small technical tasks",
+          "tools any company can trivially do"
+        ],
+        "results_we_create": [
+          "more booked calls",
+          "saved time and money",
+          "more closed deals",
+          "consistent meetings"
+        ],
+        "challenges_we_solve": [
+          "inconsistent meetings",
+          "relying on referrals",
+          "poor lead qualification",
+          "website leads leaking before being booked"
+        ]
+      },
+      "placeholders": {
+        "revenue_function": {
+          "word_count": "3-7 words",
+          "purpose": "State the growth outcome Ascendly creates for THIS company, led by a noun from the prospect's OWN world so it reads tailored.",
+          "rule": "Lead with a noun from THIS company's world (their buyer/audience/industry/category). Do NOT default to 'qualified pipeline growth'. Then add a growth word.",
+          "avoid": [
+            "enrichment",
+            "data enrichment",
+            "automation",
+            "AI",
+            "software",
+            "CRM",
+            "tools",
+            "features",
+            "technology",
+            "dashboards"
+          ]
+        },
+        "company_category": {
+          "word_count": "2-5 words",
+          "purpose": "Categorize the company using the category they would call themselves.",
+          "must_end_with_one_of": [
+            "firms",
+            "companies",
+            "agencies",
+            "consultancies",
+            "platforms",
+            "providers",
+            "studios",
+            "operators",
+            "organizations"
+          ]
+        },
+        "ascendly_mechanism": {
+          "word_count": "6-14 words",
+          "purpose": "Explain HOW Ascendly creates the outcome, using our REAL work, not features."
+        },
+        "personalized_observation": {
+          "word_count": "12-25 words",
+          "purpose": "Prove we researched the company, show understanding, and create credibility.",
+          "rule": "Grounded in the website only. Never invent clients, metrics, or projects. No generic compliments."
+        },
+        "ascendly_solution": {
+          "word_count": "3-8 words",
+          "purpose": "Name the Ascendly lever that drives the results in sentence 3."
+        },
+        "result_1": {
+          "word_count": "2-5 words",
+          "purpose": "A commercial outcome Ascendly delivers for this company."
+        },
+        "result_2": {
+          "word_count": "2-5 words",
+          "purpose": "A commercial outcome Ascendly delivers for this company."
+        },
+        "result_3": {
+          "word_count": "2-5 words",
+          "purpose": "A commercial outcome Ascendly delivers for this company."
+        }
+      },
+      "example_outputs_to_model_after": [
+        "We specialize in qualified pipeline growth for medical billing firms, by running highly targeted personalized cold outreach and capturing inbound leads before they leave your site. And, I have seen how DC Medical Billing supports providers across MD, chiropractic, PT, oncology & DME specialties. And, from our experience, a managed outbound and inbound booking system can improve DC Medical Billing's booked calls, closed deals & consistent meeting flow.",
+        "We specialize in inbound buyer pipeline growth for vehicle sales companies, by running highly targeted personalized cold outreach and capturing interested buyers before they leave your inventory pages. And, I have seen how Car Expo Group lists premium imports with detailed VIN pricing across multiple international regions. And, from our experience, a consistent outbound engine can improve Car Expo Group's booked buyer calls, closed vehicle sales & steady meeting flow.",
+        "We specialize in qualified client pipeline growth for accounting firms, by running highly targeted personalized cold outreach and booking interested visitors before they leave your site. And, I have seen how Vision Accounting offers full-service accounting, payroll & QuickBooks support for growing small businesses. And, from our experience, a managed outbound and inbound booking system can improve Vision Accounting's booked calls, new client deals & consistent meeting flow."
+      ],
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Follow the template exactly, keeping the connective words: We specialize in ... for ..., by ... . And, I have seen how ... . And, from our experience, ... can improve ...'s ..., ... & ... .",
+        "company_name refers to the PROSPECT's company name from the website or CSV, never the contact's personal name.",
+        "The personalized_observation must be grounded in the website content. Never invent clients, metrics, or projects.",
+        "NEVER mention enrichment, data enrichment, features, tools, software, CRM, or small technical tasks anywhere. Pitch only the outcome and the managed outbound + inbound booking system.",
+        "The mechanism and solution must describe Ascendly's real work: managed outbound, personalized cold outreach, and capturing/booking inbound website leads.",
+        "Do not use the em dash character."
+      ],
+      "style_note": "Notice how 'We specialize in ...' changes per prospect (qualified pipeline growth / inbound buyer pipeline growth / member pipeline growth) yet always says what Ascendly does for them in their own language. Replicate that variation. Never copy a phrase across companies."
+    }
+  ],
+  "final_json_output_schema": {
+    "ICPReview": "",
+    "ICP_reason": "",
+    "personalized_first_line": "",
+    "company_category": "",
+    "ideal_customers": "",
+    "product_complimentary": "",
+    "value_proposition": ""
+  }
+}

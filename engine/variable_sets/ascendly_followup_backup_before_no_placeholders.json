@@ -1,0 +1,355 @@
+{
+  "variable_set_name": "ascendly_followup",
+  "profile_version": "followup_full_email_v2",
+  "skip_icp": true,
+  "skip_style_checks": true,
+  "temperature": 0.6,
+  "max_tokens": 3200,
+  "output_keys": [
+    "step1_subject",
+    "step1_body",
+    "step2_subject",
+    "step2_body",
+    "step3_subject",
+    "step3_body",
+    "step4_subject",
+    "step4_body",
+    "step5_subject",
+    "step5_body",
+    "step6_subject",
+    "step6_body",
+    "step7_subject",
+    "step7_body",
+    "step8_subject",
+    "step8_body"
+  ],
+  "what_this_is": "FULL-EMAIL follow-up sequence for prospects who already replied interested. No ICP decision: every prospect is in scope. The engine writes the complete subject and body for all 8 steps. Each output column maps to one Subject or Body field in Instantly.",
+  "merge_tokens_kept_verbatim": {
+    "{{prospect_name}}": "Contact first name, from your lead list (Instantly fills it).",
+    "{{company_name}}": "Company name, from your lead list (Instantly fills it).",
+    "{{agency_success_metric}}": "YOUR real case-study result, set once as a static variable in Instantly (e.g. '32% more booked meetings in 60 days'). The engine never invents it."
+  },
+  "global_output_rules": [
+    "Return one valid JSON object only. No markdown, no code fences, no text outside JSON.",
+    "Use exactly these top-level keys: step1_subject, step1_body, step2_subject, step2_body, step3_subject, step3_body, step4_subject, step4_body, step5_subject, step5_body, step6_subject, step6_body, step7_subject, step7_body, step8_subject, step8_body.",
+    "Every value is a string containing a complete, ready-to-send subject or body.",
+    "These are follow-ups to people who already replied interested. Every prospect is in scope. Do NOT classify ICP and never return N/A.",
+    "Reproduce each template's fixed wording and line breaks exactly. Only fill the [BRACKET] research slots and only from this prospect's real website content.",
+    "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly, with braces. Never replace, fill, or delete them.",
+    "No square brackets may remain in any output value.",
+    "Ground every filled slot in something real on their site. Never invent pages, content, announcements, or metrics.",
+    "Use the same compliment in Steps 1 and 2; the same high-intent page in Steps 2 and 5; the same announcement in Steps 6 and 8.",
+    "Never use the em dash character. No emojis. No ALL CAPS.",
+    "Do not put the contact's real name anywhere; only the {{prospect_name}} token represents it."
+  ],
+  "variables": [
+    {
+      "name": "step1_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 1 (Context Setup (compliment)).",
+      "template": "loved the [COMPLIMENT]",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[COMPLIMENT] = one specific, real, well-executed element of their site, no leading article (e.g. 'clean pricing page layout')."
+      ]
+    },
+    {
+      "name": "step1_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 1 (Context Setup (compliment)).",
+      "template": "Hey {{prospect_name}},\n\nWas just checking out your website and noticed your [COMPLIMENT]. Love how clean that is.\n\nBecause your positioning is so sharp, I'm betting you get some great traffic. We run an outbound + inbound capturing agency, and we specialize in turning that traffic into actual booked sales meetings before they bounce.\n\nI'd love to walk you through our visual capture solution. Do you have 15 minutes next Monday or Tuesday afternoon to see how it works?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[COMPLIMENT] = one specific, real, well-executed element of their site, no leading article (e.g. 'clean pricing page layout')."
+      ]
+    },
+    {
+      "name": "step2_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 2 (The Website Leak (only pain-point email)).",
+      "template": "RE: loved the [COMPLIMENT]",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[COMPLIMENT] = the SAME compliment used in Step 1. [HIGH_INTENT_PAGE] = a real high-intent page on their site (e.g. 'pricing page'), no article. [FRICTION] = a specific conversion leak on that page, reads after 'because of' (e.g. 'no quick way to book a call without a long form')."
+      ]
+    },
+    {
+      "name": "step2_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 2 (The Website Leak (only pain-point email)).",
+      "template": "{{prospect_name}}, quick technical observation.\n\nI went deeper into your [HIGH_INTENT_PAGE]. Right now, because of [FRICTION], high-intent buyers who aren't ready to commit fully are bouncing, and you're losing them forever.\n\nWe fix this exact leak by combining outbound tracking with inbound capturing so no lead slips through.\n\nLet's skip a long back-and-forth. Can I walk you through our pipeline framework this coming Monday or Tuesday morning?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[COMPLIMENT] = the SAME compliment used in Step 1. [HIGH_INTENT_PAGE] = a real high-intent page on their site (e.g. 'pricing page'), no article. [FRICTION] = a specific conversion leak on that page, reads after 'because of' (e.g. 'no quick way to book a call without a long form')."
+      ]
+    },
+    {
+      "name": "step3_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 3 (Pattern Interrupter (humorous)).",
+      "template": "quick question about your site's [FUNNY]",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[FUNNY] = a real, distinctive or playful detail on their site, no article (reads as \"site's [FUNNY]\" and 'the [FUNNY] on your website')."
+      ]
+    },
+    {
+      "name": "step3_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 3 (Pattern Interrupter (humorous)).",
+      "template": "Hey {{prospect_name}},\n\nRandom question: whose idea was the [FUNNY] on your website?\n\nHonestly, it's brilliant. It actually gives {{company_name}} some real personality, which is rare in B2B.\n\nA great brand deserves a completely slammed calendar. I built a quick blueprint showing how we can layer an outbound engine on top of your current branding to book more deals. Let's do a fast walkthrough next week. Are you open next Monday at 2 PM or Tuesday at 10 AM?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[FUNNY] = a real, distinctive or playful detail on their site, no article (reads as \"site's [FUNNY]\" and 'the [FUNNY] on your website')."
+      ]
+    },
+    {
+      "name": "step4_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 4 (Analogy (story-driven)).",
+      "template": "case study related to your [CONTENT_TOPIC] piece",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[CONTENT_TOPIC] = the topic of a real article/guide they published, short, no article (reads as 'your [CONTENT_TOPIC] piece' and 'piece on [CONTENT_TOPIC]')."
+      ]
+    },
+    {
+      "name": "step4_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 4 (Analogy (story-driven)).",
+      "template": "Hey {{prospect_name}},\n\nI was reading your team's piece on [CONTENT_TOPIC]. It got me thinking about a client of ours who had a similar philosophy but was struggling to turn their content readers into actual sales pipeline.\n\nWe hooked up our inbound capturing system and backed it up with targeted outbound. Long story short, we saw a {{agency_success_metric}}.\n\nI mapped out a similar dual-threat pipeline strategy specifically for {{company_name}}. Do either Monday or Tuesday next week work for a brief 15-minute look?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[CONTENT_TOPIC] = the topic of a real article/guide they published, short, no article (reads as 'your [CONTENT_TOPIC] piece' and 'piece on [CONTENT_TOPIC]')."
+      ]
+    },
+    {
+      "name": "step5_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 5 (Traffic Reality Check (direct)).",
+      "template": "capturing your {{company_name}} site ghost town",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[HIGH_INTENT_PAGE] = the SAME high-intent page used in Step 2."
+      ]
+    },
+    {
+      "name": "step5_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 5 (Traffic Reality Check (direct)).",
+      "template": "Hey {{prospect_name}},\n\nFun fact: about 98% of the people visiting your [HIGH_INTENT_PAGE] right now are leaving without giving you their email.\n\nMost outbound agencies just spam cold lists. Most inbound agencies just tell you to write more blogs. We actually deanonymize your traffic and trigger outbound campaigns directly to those exact companies while they are hot.\n\nI want to show you the actual software backend we use to do this. How does next Tuesday morning look on your end for a quick walkthrough?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[HIGH_INTENT_PAGE] = the SAME high-intent page used in Step 2."
+      ]
+    },
+    {
+      "name": "step6_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 6 (Milestone Play (contextual)).",
+      "template": "congrats on the [ANNOUNCEMENT]",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[ANNOUNCEMENT] = a real recent update/launch/milestone from their site, no article (reads as 'the [ANNOUNCEMENT]')."
+      ]
+    },
+    {
+      "name": "step6_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 6 (Milestone Play (contextual)).",
+      "template": "{{prospect_name}}, noticed the update on your site about [ANNOUNCEMENT]. Massive milestone, congrats to the team.\n\nUsually, a big push like this means your sales team needs to move fast. We can deploy a fully managed outbound campaign to back up this new launch, while simultaneously capturing the inbound surge hitting your site.\n\nI'm putting a few slots together for next Monday and Tuesday to show you the playbook. Any preference between the two?",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[ANNOUNCEMENT] = a real recent update/launch/milestone from their site, no article (reads as 'the [ANNOUNCEMENT]')."
+      ]
+    },
+    {
+      "name": "step7_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 7 (Direct Check-In (short)).",
+      "template": "making {{company_name}}'s site work harder",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "No research slot. Reproduce exactly, keeping {{prospect_name}} and {{company_name}}."
+      ]
+    },
+    {
+      "name": "step7_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 7 (Direct Check-In (short)).",
+      "template": "Hey {{prospect_name}},\n\nI'll keep it brief. You guys have a great product and a beautiful site, but I see a few places where you are leaving inbound revenue on the table.\n\nIf scaling your pipeline via outbound + inbound capture is a priority this quarter, let's connect. If not, no sweat.\n\nIf it is, I can walk you through our agency mechanism next week. Let me know if Monday or Tuesday works best for your schedule.",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "No research slot. Reproduce exactly, keeping {{prospect_name}} and {{company_name}}."
+      ]
+    },
+    {
+      "name": "step8_subject",
+      "min_words": 2,
+      "max_words": 16,
+      "fallback": "N/A",
+      "purpose": "Full subject line for Step 8 (Clean Breakup (exit)).",
+      "template": "closing the loop on this",
+      "instructions": [
+        "Output the subject EXACTLY as in template, replacing only [BRACKET] slots with grounded, specific text from THIS prospect's site.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values.",
+        "No square brackets may remain in the output.",
+        "[ANNOUNCEMENT] = the SAME announcement used in Step 6."
+      ]
+    },
+    {
+      "name": "step8_body",
+      "min_words": 30,
+      "max_words": 170,
+      "fallback": "N/A",
+      "purpose": "Full email body for Step 8 (Clean Breakup (exit)).",
+      "template": "Hey {{prospect_name}},\n\nI'm assuming optimizing your inbound capture and outbound pipelines isn't on the radar for {{company_name}} right now. Completely fair.\n\nI'll stop cluttering your inbox.\n\nIf you ever want a quick walkthrough of how an agency can maximize your site traffic and book automated meetings, feel free to ping me down the road. I'm usually around on Mondays and Tuesdays.\n\nKeep crushing it with the [ANNOUNCEMENT]!",
+      "instructions": [
+        "Output the body EXACTLY as in template, preserving every line break (\\n\\n between paragraphs) and all fixed wording.",
+        "Replace ONLY the [BRACKET] slots with grounded, specific detail from THIS prospect's site. No square brackets may remain.",
+        "Keep {{prospect_name}}, {{company_name}}, {{agency_success_metric}} exactly as written, including the double braces. Never replace them with real values, never delete them.",
+        "Do not add, remove, or reorder sentences. Do not change the pitch wording.",
+        "No em dash anywhere.",
+        "[ANNOUNCEMENT] = the SAME announcement used in Step 6."
+      ]
+    }
+  ],
+  "email_sequence_reference": [
+    {
+      "step": 1,
+      "name": "Context Setup (compliment)",
+      "subject_template": "loved the [COMPLIMENT]",
+      "body_template": "Hey {{prospect_name}},\n\nWas just checking out your website and noticed your [COMPLIMENT]. Love how clean that is.\n\nBecause your positioning is so sharp, I'm betting you get some great traffic. We run an outbound + inbound capturing agency, and we specialize in turning that traffic into actual booked sales meetings before they bounce.\n\nI'd love to walk you through our visual capture solution. Do you have 15 minutes next Monday or Tuesday afternoon to see how it works?"
+    },
+    {
+      "step": 2,
+      "name": "The Website Leak (only pain-point email)",
+      "subject_template": "RE: loved the [COMPLIMENT]",
+      "body_template": "{{prospect_name}}, quick technical observation.\n\nI went deeper into your [HIGH_INTENT_PAGE]. Right now, because of [FRICTION], high-intent buyers who aren't ready to commit fully are bouncing, and you're losing them forever.\n\nWe fix this exact leak by combining outbound tracking with inbound capturing so no lead slips through.\n\nLet's skip a long back-and-forth. Can I walk you through our pipeline framework this coming Monday or Tuesday morning?"
+    },
+    {
+      "step": 3,
+      "name": "Pattern Interrupter (humorous)",
+      "subject_template": "quick question about your site's [FUNNY]",
+      "body_template": "Hey {{prospect_name}},\n\nRandom question: whose idea was the [FUNNY] on your website?\n\nHonestly, it's brilliant. It actually gives {{company_name}} some real personality, which is rare in B2B.\n\nA great brand deserves a completely slammed calendar. I built a quick blueprint showing how we can layer an outbound engine on top of your current branding to book more deals. Let's do a fast walkthrough next week. Are you open next Monday at 2 PM or Tuesday at 10 AM?"
+    },
+    {
+      "step": 4,
+      "name": "Analogy (story-driven)",
+      "subject_template": "case study related to your [CONTENT_TOPIC] piece",
+      "body_template": "Hey {{prospect_name}},\n\nI was reading your team's piece on [CONTENT_TOPIC]. It got me thinking about a client of ours who had a similar philosophy but was struggling to turn their content readers into actual sales pipeline.\n\nWe hooked up our inbound capturing system and backed it up with targeted outbound. Long story short, we saw a {{agency_success_metric}}.\n\nI mapped out a similar dual-threat pipeline strategy specifically for {{company_name}}. Do either Monday or Tuesday next week work for a brief 15-minute look?"
+    },
+    {
+      "step": 5,
+      "name": "Traffic Reality Check (direct)",
+      "subject_template": "capturing your {{company_name}} site ghost town",
+      "body_template": "Hey {{prospect_name}},\n\nFun fact: about 98% of the people visiting your [HIGH_INTENT_PAGE] right now are leaving without giving you their email.\n\nMost outbound agencies just spam cold lists. Most inbound agencies just tell you to write more blogs. We actually deanonymize your traffic and trigger outbound campaigns directly to those exact companies while they are hot.\n\nI want to show you the actual software backend we use to do this. How does next Tuesday morning look on your end for a quick walkthrough?"
+    },
+    {
+      "step": 6,
+      "name": "Milestone Play (contextual)",
+      "subject_template": "congrats on the [ANNOUNCEMENT]",
+      "body_template": "{{prospect_name}}, noticed the update on your site about [ANNOUNCEMENT]. Massive milestone, congrats to the team.\n\nUsually, a big push like this means your sales team needs to move fast. We can deploy a fully managed outbound campaign to back up this new launch, while simultaneously capturing the inbound surge hitting your site.\n\nI'm putting a few slots together for next Monday and Tuesday to show you the playbook. Any preference between the two?"
+    },
+    {
+      "step": 7,
+      "name": "Direct Check-In (short)",
+      "subject_template": "making {{company_name}}'s site work harder",
+      "body_template": "Hey {{prospect_name}},\n\nI'll keep it brief. You guys have a great product and a beautiful site, but I see a few places where you are leaving inbound revenue on the table.\n\nIf scaling your pipeline via outbound + inbound capture is a priority this quarter, let's connect. If not, no sweat.\n\nIf it is, I can walk you through our agency mechanism next week. Let me know if Monday or Tuesday works best for your schedule."
+    },
+    {
+      "step": 8,
+      "name": "Clean Breakup (exit)",
+      "subject_template": "closing the loop on this",
+      "body_template": "Hey {{prospect_name}},\n\nI'm assuming optimizing your inbound capture and outbound pipelines isn't on the radar for {{company_name}} right now. Completely fair.\n\nI'll stop cluttering your inbox.\n\nIf you ever want a quick walkthrough of how an agency can maximize your site traffic and book automated meetings, feel free to ping me down the road. I'm usually around on Mondays and Tuesdays.\n\nKeep crushing it with the [ANNOUNCEMENT]!"
+    }
+  ],
+  "final_json_output_schema": {
+    "step1_subject": "",
+    "step1_body": "",
+    "step2_subject": "",
+    "step2_body": "",
+    "step3_subject": "",
+    "step3_body": "",
+    "step4_subject": "",
+    "step4_body": "",
+    "step5_subject": "",
+    "step5_body": "",
+    "step6_subject": "",
+    "step6_body": "",
+    "step7_subject": "",
+    "step7_body": "",
+    "step8_subject": "",
+    "step8_body": ""
+  }
+}

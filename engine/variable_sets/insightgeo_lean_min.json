@@ -1,0 +1,281 @@
+{
+  "variable_set_name": "insightgeo_lean_min",
+  "profile_version": "variables_lean_v2_insightgeo",
+  "max_tokens": 2200,
+  "temperature": 0.75,
+  "output_keys": [
+    "ICPReview",
+    "ICP_reason",
+    "personalized_first_line",
+    "company_category",
+    "ideal_customers",
+    "product_complimentary",
+    "value_proposition"
+  ],
+  "global_output_rules": [
+    "Return one valid JSON object only.",
+    "Do not return markdown, notes, explanations, code fences, or text outside JSON.",
+    "Final output must use exactly these top-level keys: ICPReview, ICP_reason, personalized_first_line, company_category, ideal_customers, product_complimentary, value_proposition.",
+    "Every generated value must be a string.",
+    "First decide ICPReview using the client profile ICP rules, then fill ICP_reason.",
+    "ICP_reason must ALWAYS be filled, even when ICPReview is Non-ICP.",
+    "If ICPReview is Non-ICP, return N/A for every variable EXCEPT ICPReview and ICP_reason.",
+    "If ICPReview is ICP, generate every variable using the best available website facts.",
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, case studies, projects, services, results, numbers, industries, awards, partnerships, locations, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "company_name inside the value_proposition refers to the PROSPECT company, which is allowed; the contact's personal name is never allowed.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact."
+  ],
+  "variables": [
+    {
+      "name": "ICPReview",
+      "format_lock": true,
+      "min_words": 1,
+      "fallback": "Non-ICP",
+      "max_words": 1,
+      "allowed_values": [
+        "ICP",
+        "Non-ICP"
+      ],
+      "purpose": "Decide whether the prospect is a fit for the client's ICP."
+    },
+    {
+      "name": "ICP_reason",
+      "format_lock": false,
+      "min_words": 3,
+      "fallback": "",
+      "max_words": 5,
+      "purpose": "In 3 to 5 words, explain why the company is ICP or why it is Non-ICP."
+    },
+    {
+      "name": "personalized_first_line",
+      "format_lock": false,
+      "min_words": 8,
+      "fallback": "N/A",
+      "max_words": 28,
+      "purpose": "First line that proves real research about the prospect. An observation, not flattery. No pitch, no question.",
+      "writing_rules": [
+        "Mention ONE specific thing from their site: a product, platform, service, case study, project, metric, or differentiator.",
+        "Observation, not praise. No generic compliments, no exaggeration.",
+        "Do not pitch, do not ask a question, do not end with a question mark.",
+        "Natural and skimmable. Avoid: revolutionary, world-class, cutting-edge, groundbreaking."
+      ],
+      "good_examples": [
+        "Your browser-based cyber range removes a lot of the friction that slows down security training programs.",
+        "The way you combine ADA compliance with Drupal ecommerce creates a rare advantage for public-sector organizations.",
+        "Your Kairos EDU-Site Framework clearly solves CMS editing frustrations for higher education teams."
+      ]
+    },
+    {
+      "name": "company_category",
+      "format_lock": false,
+      "min_words": 2,
+      "fallback": "N/A",
+      "max_words": 5,
+      "purpose": "Categorize the company using the category they would call themselves.",
+      "must_end_with_one_of": [
+        "firms",
+        "companies",
+        "agencies",
+        "consultancies",
+        "platforms",
+        "providers",
+        "studios",
+        "operators",
+        "organizations",
+        "brands",
+        "institutions",
+        "groups"
+      ],
+      "instructions": [
+        "Use the category the company would call itself.",
+        "Examples: cybersecurity providers, B2B SaaS platforms, consulting firms, fintech platforms, healthcare technology companies, ecommerce brands, higher education institutions.",
+        "Avoid generic labels; use their actual market positioning."
+      ]
+    },
+    {
+      "name": "ideal_customers",
+      "format_lock": true,
+      "fixed_format": "{{target_1}}, {{target_2}}, & {{target_3}}",
+      "min_words": 6,
+      "fallback": "N/A",
+      "max_words": 18,
+      "purpose": "Identify three ideal customer types using a mix of industries and decision makers.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Exactly three target types in the form: A, B, & C.",
+        "Mix industry and decision-maker language, based on their site/services.",
+        "Not a sentence. No em dash."
+      ],
+      "good_examples": [
+        "E-commerce owners, SMB decision makers, & tech enterprise teams",
+        "Healthcare founders, finance leaders, & compliance-heavy operators"
+      ]
+    },
+    {
+      "name": "product_complimentary",
+      "format_lock": false,
+      "min_words": 12,
+      "fallback": "N/A",
+      "must_end_with_question_mark": true,
+      "max_words": 32,
+      "purpose": "A short specific compliment about their actual product/service/work, then ONE easy question about that same thing. Not a pitch.",
+      "rules": {
+        "must_do": [
+          "Name a specific product, service, feature, project, or resource from their site.",
+          "Ask exactly one easy (yes/no-style) question tied to that thing.",
+          "Light compliment, casual, company-specific (could not be reused for a competitor)."
+        ],
+        "must_not_do": [
+          "No generic or discovery questions like 'looking for more leads?'.",
+          "Don't pitch your service. Don't ask two questions.",
+          "No over-praise (amazing, incredible, world-class)."
+        ]
+      },
+      "good_examples": [
+        "One more thing, your CYRIN cyber range is sharp. Is that your flagship training product?",
+        "Your zero-knowledge architecture is a strong trust signal. Is that what users value most?",
+        "Your ADA-first Drupal ecommerce work is a rare combo. Are nonprofits your main market for that?"
+      ]
+    },
+    {
+      "name": "value_proposition",
+      "format_lock": true,
+      "min_words": 45,
+      "fallback": "N/A",
+      "max_words": 80,
+      "template": "We specialize in {{revenue_function}} for {{company_category}}, by {{insightgeo_mechanism}}. And, I have seen how {{company_name}} {{personalized_observation}}. And, from our experience, {{insightgeo_solution}} can {{results_clause}}.",
+      "mechanism_variants": [
+        "measuring how often you show up when buyers ask AI tools like ChatGPT & Perplexity for the best provider",
+        "testing real buyer questions across major AI assistants & showing where you're recommended or skipped",
+        "tracking how ChatGPT, Claude, Gemini & Perplexity describe & recommend you during vendor research",
+        "mapping your visibility across the AI conversations buyers have before they ever reach your site",
+        "finding the buyer topics where competitors get recommended to AI users instead of you",
+        "giving you a clear view of how AI tools represent you & where to improve"
+      ],
+      "solution_variants": [
+        "topic-by-topic AI visibility testing",
+        "a clear view of how AI tools describe you",
+        "competitor recommendation-gap analysis",
+        "prioritized, practical improvements",
+        "tracking your inclusion in AI vendor shortlists",
+        "buyer-question visibility measurement"
+      ],
+      "offer_summary": {
+        "what_we_do": [
+          "Test real buyer questions across ChatGPT, Claude, Gemini & Perplexity.",
+          "Measure how often & how accurately a company appears in AI answers.",
+          "Identify topics & comparisons where competitors get recommended instead.",
+          "Give a clear view of how AI tools represent the company.",
+          "Prioritize practical improvements that strengthen AI visibility & consideration."
+        ],
+        "we_never_pitch": [
+          "traditional SEO",
+          "content marketing",
+          "paid advertising",
+          "guaranteed rankings or guaranteed recommendations",
+          "instant results",
+          "a dashboard that gives data without direction",
+          "invented numbers or percentages"
+        ],
+        "results_we_create": [
+          "more visibility in AI-assisted research",
+          "higher recommendation frequency across AI platforms",
+          "inclusion in AI-generated vendor shortlists",
+          "stronger buyer consideration before the website",
+          "clarity on competitor recommendation gaps"
+        ],
+        "challenges_we_solve": [
+          "competitors recommended more often by AI tools",
+          "weak visibility across important buyer topics",
+          "incorrect or incomplete AI-generated descriptions",
+          "missed opportunities during vendor-comparison research",
+          "no insight into how buyers discover them through AI"
+        ]
+      },
+      "placeholders": {
+        "revenue_function": {
+          "word_count": "3-7 words",
+          "purpose": "The growth outcome InsightGEO creates for THIS company, in the prospect's own world.",
+          "rule": "Lead with the prospect's world, e.g. 'increasing AI search visibility', 'improving recommendation frequency', 'strengthening buyer consideration', 'improving inclusion in AI vendor shortlists'. It is the business outcome, not the method.",
+          "avoid": [
+            "SEO",
+            "content marketing",
+            "paid ads",
+            "rankings",
+            "the dashboard",
+            "the tool itself"
+          ]
+        },
+        "company_category": {
+          "word_count": "2-5 words",
+          "purpose": "The category the company would call itself (e.g. cybersecurity providers, B2B SaaS platforms, consulting firms).",
+          "must_end_with_one_of": [
+            "firms",
+            "companies",
+            "agencies",
+            "consultancies",
+            "platforms",
+            "providers",
+            "studios",
+            "operators",
+            "organizations",
+            "brands",
+            "institutions",
+            "groups"
+          ]
+        },
+        "insightgeo_mechanism": {
+          "word_count": "8-18 words",
+          "purpose": "How InsightGEO delivers: measuring & improving how the company is found, described, and recommended inside AI research tools.",
+          "rule": "Always frame around AI-assisted buyer research: testing real buyer questions across ChatGPT, Claude, Gemini & Perplexity, measuring visibility by topic, and surfacing where competitors get recommended instead. This is InsightGEO's real work."
+        },
+        "personalized_observation": {
+          "word_count": "8-22 words",
+          "purpose": "Prove real research: how THIS company positions itself, drawn only from their site.",
+          "rule": "Grounded in the website only. Never invent clients, metrics, projects, or percentages. No generic compliments."
+        },
+        "insightgeo_solution": {
+          "word_count": "2-7 words",
+          "purpose": "The specific InsightGEO lever, e.g. topic-by-topic AI visibility testing, competitor recommendation-gap analysis, a clear view of how AI tools describe you."
+        },
+        "results_clause": {
+          "word_count": "5-14 words",
+          "purpose": "2 to 3 commercial outcomes joined naturally with a verb (increase, improve, strengthen, surface, raise, grow).",
+          "rule": "Outcomes tied to AI-assisted research only: recommendation frequency, AI visibility, shortlist inclusion, buyer consideration, competitor-gap clarity. Never promise guaranteed rankings or recommendations, instant results, or invented statistics."
+        }
+      },
+      "example_outputs_to_model_after": [
+        "We specialize in increasing AI search visibility for cybersecurity providers, by testing how often you show up when buyers ask ChatGPT & Perplexity for the best vendor. And, I have seen how Acme Security focuses on threat detection for mid-market teams. And, from our experience, topic-by-topic AI visibility testing can improve recommendation frequency, surface competitor gaps & strengthen buyer consideration.",
+        "We specialize in improving recommendation frequency for B2B SaaS platforms, by tracking how ChatGPT, Claude, Gemini & Perplexity describe & recommend you during vendor research. And, I have seen how Northwind positions its analytics suite for revenue teams. And, from our experience, a clear view of how AI tools describe you can improve shortlist inclusion & strengthen consideration before buyers reach your site.",
+        "We specialize in strengthening buyer consideration for consulting firms, by mapping your visibility across the AI conversations buyers have before they ever reach your site. And, I have seen how Harbor Advisory concentrates on digital transformation for regulated industries. And, from our experience, competitor recommendation-gap analysis can surface missed comparisons & improve how AI tools represent you.",
+        "We specialize in improving AI vendor-shortlist inclusion for fintech platforms, by finding the buyer topics where competitors get recommended instead of you. And, I have seen how Ledgerly serves payments teams at growing companies. And, from our experience, prioritized, practical improvements can raise visibility across key buyer topics & strengthen consideration."
+      ],
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Follow the 3-sentence structure: We specialize in ... for ..., by ... . And, I have seen how ... . And, from our experience, ... can ... .",
+        "company_name refers to the PROSPECT's company, never the contact's personal name.",
+        "The personalized_observation must be grounded in the website content. Never invent clients, metrics, projects, or percentages.",
+        "The mechanism must describe InsightGEO measuring & improving how the company is found, described, and recommended inside AI research tools (ChatGPT, Claude, Gemini, Perplexity).",
+        "Never position InsightGEO as an SEO agency, content marketing agency, or paid advertising company. Never promise guaranteed rankings, guaranteed recommendations, or instant results.",
+        "Do not use the em dash character."
+      ],
+      "style_note": "Each value proposition should read individually researched: 'We specialize in ...' changes per prospect (increasing AI search visibility / improving recommendation frequency / strengthening buyer consideration) and the observation adapts to what THAT company does. Never reuse the same wording across companies. The example company names above are illustrative only."
+    }
+  ],
+  "final_json_output_schema": {
+    "ICPReview": "",
+    "ICP_reason": "",
+    "personalized_first_line": "",
+    "company_category": "",
+    "ideal_customers": "",
+    "product_complimentary": "",
+    "value_proposition": ""
+  }
+}

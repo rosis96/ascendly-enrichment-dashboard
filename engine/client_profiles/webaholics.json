@@ -1,0 +1,149 @@
+{
+  "client_name": "webaholics",
+  "website": "https://www.webaholics.ai/",
+  "profile_version": "client_profile_icp_v1",
+  "service_brief": "Webaholics is an AI-powered web growth company that builds fully custom websites and web apps and turns them into lead-generating revenue systems. Instead of basic brochure sites, Webaholics delivers a full-stack system covering custom design, SEO and AI search optimization, lead capture and automation, CRM and pipeline management, and revenue operations, built by one team and launched in about 30 days.",
+  "main_offer": "Webaholics builds fully custom, AI-developed websites and apps that replace fragmented tool stacks like Wix, WordPress, Mailchimp, Zapier, and Stripe with one integrated system. Building with AI lets them move from concept to a working, secure, conversion-focused product in weeks instead of months, without sacrificing customization.",
+  "what_we_are_pitching": "We are pitching Webaholics as a done-for-you AI development partner for businesses that are on template builders like Wix or WordPress, or that have slow, plugin-heavy, or underperforming sites, and want a fully custom, fast, secure, conversion-focused website or app. The primary pitch is AI custom development, with marketing and growth services as an option for prospects with the budget.",
+  "target_outcome": "Webaholics helps clients launch a fully custom site or app far faster (often 5 to 10x faster than traditional development), at 40 to 70 percent lower cost, with stronger security, higher conversion, and a site that actively captures leads and tracks revenue instead of sitting static.",
+  "icp_summary": "Webaholics primarily targets small to mid-sized businesses, typically 10 to 100 employees with around $500K or more in revenue (no hard minimum), that are running on template builders like Wix or WordPress, are frustrated with plugin sprawl, cost, speed, or security, and want a fully custom, AI-built website or app that generates and converts leads. Ecommerce and lead-generation businesses are especially strong fits.",
+  "icp": {
+    "primary_fit": "Small to mid-sized businesses on template or plugin-based platforms (Wix, WordPress, Squarespace, etc.) that want a fully custom, fast, secure, conversion-focused website or web app, and that would benefit from replacing a fragmented tool stack with one integrated system.",
+    "company_characteristics": [
+      "Roughly 10 to 100 employees",
+      "Revenue around $500K or more, but no hard minimum",
+      "Currently on Wix, WordPress, Squarespace, or a plugin-heavy template site",
+      "Ecommerce brands or lead-generation businesses",
+      "Sites that are slow, dated, hard to maintain, or not converting well",
+      "Paying for multiple separate tools and plugins each month",
+      "Growth-minded and willing to invest in a custom site or app",
+      "Want measurable ROI, better SEO, and stronger lead handling from their site",
+      "Need security, speed, and full customization beyond what templates allow"
+    ],
+    "decision_makers": [
+      "Founders",
+      "Owners",
+      "CEOs",
+      "Managing Directors",
+      "Marketing leaders",
+      "Heads of Growth",
+      "Ecommerce managers",
+      "Operations leaders",
+      "COOs"
+    ],
+    "core_industries": {
+      "ecommerce_and_retail": [
+        "Ecommerce brands",
+        "Direct-to-consumer companies",
+        "Online retailers",
+        "Subscription product companies"
+      ],
+      "lead_generation_businesses": [
+        "Local service businesses that rely on inbound leads",
+        "Home services companies",
+        "Professional service firms",
+        "Coaching and consulting businesses",
+        "Real estate and property businesses",
+        "Healthcare and dental practices that market online"
+      ],
+      "businesses_on_template_platforms": [
+        "Companies on Wix",
+        "Companies on WordPress",
+        "Companies on Squarespace",
+        "Companies on plugin-heavy or page-builder sites"
+      ],
+      "growth_and_marketing_minded_smbs": [
+        "Agencies and studios",
+        "SaaS and software startups needing a site or app",
+        "Service businesses investing in digital growth",
+        "Companies launching a new product, app, or MVP"
+      ]
+    }
+  },
+  "non_icp": {
+    "summary": "Non-ICP companies are those where a custom AI-built website or app would not create meaningful value, including businesses with no real web or app need, no budget or growth intent, or sites that are purely personal, parked, or hobby-level.",
+    "non_fit_categories": [
+      "Personal blogs",
+      "Hobby sites",
+      "Parked or inactive domains",
+      "Tiny freelancers with no budget",
+      "Pure affiliate or content-only sites",
+      "Non-business or informational-only sites",
+      "Businesses with no online presence relevance",
+      "Companies that explicitly want only a cheap one-page template",
+      "Other web design or development agencies offering the same service",
+      "Very large enterprises with established in-house development teams"
+    ],
+    "non_fit_signals": [
+      "No clear commercial business or offer",
+      "No website, or only a parked or placeholder page",
+      "Purely personal, hobby, or informational site",
+      "No budget signals and no growth intent",
+      "Already a custom-built, modern, fast, well-optimized site with no obvious need",
+      "Company is itself a competing web or app development agency",
+      "Site has no products, services, or lead-generation purpose"
+    ]
+  },
+  "icp_review_rules": [
+    "Return ICP if the company is a real business with a website or app that could be rebuilt, improved, or made fully custom, and that would benefit from faster, cheaper, more secure, more conversion-focused AI development.",
+    "Return ICP if the company appears to run on Wix, WordPress, Squarespace, or a plugin-heavy or template-based site.",
+    "Return ICP if the company is an ecommerce brand, a lead-generation business, a service business marketing online, an agency, or an SMB investing in digital growth.",
+    "Return ICP if the company has a slow, dated, or underperforming site, or pays for many separate tools and plugins.",
+    "Return Non-ICP if the company is a personal blog, hobby site, parked domain, affiliate or content-only site, or has no clear commercial offer.",
+    "Return Non-ICP if the company is itself a competing web or app development agency offering the same service.",
+    "Return Non-ICP if the company already has a modern, fast, fully custom site with no visible need, or shows no budget or growth intent.",
+    "If unsure, classify based on whether a fully custom, AI-built website or app could realistically create value for the business, and lean ICP for any legitimate business with a commercial web presence.",
+    "If ICPReview is Non-ICP, all writing variables should return N/A.",
+    "If ICPReview is ICP, generate all writing variables using only the website content and CSV row context."
+  ],
+  "icp_review_output": {
+    "field_name": "ICPReview",
+    "allowed_values": [
+      "ICP",
+      "Non-ICP"
+    ],
+    "format": "Return ICP or Non-ICP only.",
+    "purpose": "Decide whether the company is a good fit for Webaholics' done-for-you AI custom website and app development service."
+  },
+  "research_guidance": {
+    "goal": "Understand whether the prospect runs a real business with a website or app that could be rebuilt as a faster, more custom, more conversion-focused system, and find specific, real signals to personalize around.",
+    "priority_pages": [
+      "Homepage",
+      "Services page",
+      "Products or shop page",
+      "About page",
+      "Portfolio or work page",
+      "Case studies page",
+      "Pricing page",
+      "Contact page"
+    ],
+    "specific_items_to_extract": [
+      "company category",
+      "industry",
+      "products or services offered",
+      "target customers",
+      "whether the site looks built on Wix, WordPress, Squarespace, or a template",
+      "ecommerce or lead-generation purpose",
+      "signs of a slow, dated, or plugin-heavy site",
+      "lead capture forms, booking, or chat present",
+      "SEO and content presence",
+      "growth or marketing signals",
+      "notable products, services, projects, or differentiators to personalize around"
+    ]
+  },
+  "global_rules": [
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, services, industries, numbers, results, funding, awards, partnerships, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Keep language simple, direct, specific, and practical.",
+    "Avoid generic praise like great website, impressive work, amazing services, strong online presence, innovative solutions, and professional team.",
+    "Avoid robotic words like leverage, robust, seamless, scalable, synergy, transformative, game-changing, cutting-edge, future-ready, unlock, empower, and elevate.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "Do not start any variable with a person's name.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact."
+  ]
+}

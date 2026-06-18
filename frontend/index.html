@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ascendly · Lead Enrichment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="app">
+  <aside class="side" id="side">
+    <div class="ws" id="wsBtn">
+      <span class="dot" id="wsDot">A</span>
+      <span class="lbl ws-name" id="wsName">Ascendly</span>
+      <span class="col" id="collapseBtn" title="Collapse"><i data-i="collapse"></i></span>
+    </div>
+    <div class="wsmenu" id="wsMenu" hidden></div>
+
+    <div class="navgroup">
+      <div class="navh">Lists</div>
+      <nav class="nav" id="lists"></nav>
+      <a class="nav-add" id="newListBtn"><span class="ic">+</span><span class="lbl">New list</span></a>
+    </div>
+
+    <div class="navgroup">
+      <div class="navh">Build</div>
+      <nav class="nav">
+        <a id="enrichBtn"><span class="ic">▦</span><span class="lbl">Enrichments</span></a>
+        <a id="formatBtn"><span class="ic">▤</span><span class="lbl">Formats</span></a>
+      </nav>
+    </div>
+
+    <div class="navgroup">
+      <div class="navh">Export</div>
+      <nav class="nav">
+        <a id="exportNav"><span class="ic">⬇</span><span class="lbl">Export CSV</span></a>
+      </nav>
+    </div>
+
+    <a class="set" id="settingsBtn"><span class="ic">⚙</span><span class="lbl">Settings</span></a>
+    <div class="handle" id="handle"></div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <div class="titlewrap">
+        <div class="title" id="viewTitle">No list selected</div>
+        <div class="sub" id="viewSub">Create or import a list to begin</div>
+      </div>
+      <div class="scope" id="scope">
+        <span class="credits" id="credits"></span>
+        <span class="selinfo" id="selInfo" hidden></span>
+        <label class="lim" id="limWrap">Test first <input id="limitN" type="number" min="1" value="10" /> leads</label>
+      </div>
+      <button class="gbtn" id="importBtn"><i data-i="up"></i> Import</button>
+      <button class="gbtn" id="exportBtn"><i data-i="down"></i> Export</button>
+      <button class="gbtn" id="verifyBtn"><i data-i="mail"></i> Verify</button>
+      <button class="run" id="runBtn"><i data-i="play"></i> Run</button>
+      <button class="run stop" id="stopBtn" hidden><i data-i="stop"></i> Stop</button>
+    </div>
+
+    <div class="panel" id="enrichPanel" hidden>
+      <div class="panel-h">Choose enrichments to output <span class="muted">(everything else stays in the background)</span></div>
+      <div class="chips" id="enrichChips"></div>
+    </div>
+
+    <div class="panel import" id="importPanel" hidden>
+      <i data-i="file" class="big"></i>
+      <span class="fileinfo" id="fileInfo">No file chosen</span>
+      <input type="file" id="fileInput" accept=".csv" hidden />
+      <button class="gbtn" id="chooseBtn">Choose CSV</button>
+      <input id="listName" placeholder="Name this list  e.g. Branding firms — US" />
+      <button class="run" id="createBtn">Create list</button>
+      <i data-i="x" class="closex" id="importClose"></i>
+    </div>
+
+    <div class="gw" id="gridWrap">
+      <div class="empty" id="empty">Select a list on the left, or import a new one.</div>
+      <table id="grid" hidden>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="body"></tbody>
+      </table>
+    </div>
+
+    <div class="view" id="formatView" hidden></div>
+    <div class="view" id="settingsView" hidden></div>
+
+    <div class="bar" id="runbar">
+      <span class="stat" id="stat">No list selected</span>
+      <div class="prog"><i id="bar"></i></div>
+      <span class="cost" id="cost">$0.00</span>
+      <button class="run" id="runBtn2"><i data-i="play"></i> Run enrichment</button>
+    </div>
+  </main>
+</div>
+<script src="/assets/app.js"></script>
+</body>
+</html>

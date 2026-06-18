@@ -1,0 +1,253 @@
+{
+  "variable_set_name": "webaholics_lean_min",
+  "profile_version": "variables_lean_v2_webaholics",
+  "max_tokens": 2200,
+  "temperature": 0.75,
+  "output_keys": [
+    "ICPReview",
+    "ICP_reason",
+    "personalized_first_line",
+    "company_category",
+    "ideal_customers",
+    "product_complimentary",
+    "value_proposition"
+  ],
+  "global_output_rules": [
+    "Return one valid JSON object only.",
+    "Do not return markdown, notes, explanations, code fences, or text outside JSON.",
+    "Final output must use exactly these top-level keys: ICPReview, ICP_reason, personalized_first_line, company_category, ideal_customers, product_complimentary, value_proposition.",
+    "Every generated value must be a string.",
+    "First decide ICPReview using the client profile ICP rules, then fill ICP_reason.",
+    "ICP_reason must ALWAYS be filled, even when ICPReview is Non-ICP.",
+    "If ICPReview is Non-ICP, return N/A for every variable EXCEPT ICPReview and ICP_reason.",
+    "If ICPReview is ICP, generate every variable using the best available website facts.",
+    "Use only the prospect website content and CSV row context.",
+    "Do not invent clients, case studies, projects, services, results, numbers, industries, awards, partnerships, locations, or claims.",
+    "Never use the em dash character.",
+    "Use & instead of and where natural.",
+    "Use contractions where natural.",
+    "No emojis.",
+    "No ALL CAPS.",
+    "Do not use the prospect's first name, last name, full name, founder name, employee name, or contact name in any generated variable.",
+    "company_name inside the value_proposition refers to the PROSPECT company, which is allowed; the contact's personal name is never allowed.",
+    "Personalization must be about the company, website, service, clients, portfolio, positioning, industry, or target customers, not the individual contact."
+  ],
+  "variables": [
+    {
+      "name": "ICPReview",
+      "format_lock": true,
+      "min_words": 1,
+      "fallback": "Non-ICP",
+      "max_words": 1,
+      "allowed_values": [
+        "ICP",
+        "Non-ICP"
+      ],
+      "purpose": "Decide whether the prospect is a fit for the client's ICP."
+    },
+    {
+      "name": "ICP_reason",
+      "format_lock": false,
+      "min_words": 3,
+      "fallback": "",
+      "max_words": 5,
+      "purpose": "In 3 to 5 words, explain why the company is ICP or why it is Non-ICP."
+    },
+    {
+      "name": "personalized_first_line",
+      "format_lock": false,
+      "min_words": 8,
+      "fallback": "N/A",
+      "max_words": 28,
+      "purpose": "First line that proves real research about the prospect. An observation, not flattery. No pitch, no question.",
+      "writing_rules": [
+        "Mention ONE specific thing from their site: a product, platform, service, case study, project, metric, or differentiator.",
+        "Observation, not praise. No generic compliments, no exaggeration.",
+        "Do not pitch, do not ask a question, do not end with a question mark.",
+        "Natural and skimmable. Avoid: revolutionary, world-class, cutting-edge, groundbreaking."
+      ],
+      "good_examples": [
+        "Your browser-based cyber range removes a lot of the friction that slows down security training programs.",
+        "The way you combine ADA compliance with Drupal ecommerce creates a rare advantage for public-sector organizations.",
+        "Your Kairos EDU-Site Framework clearly solves CMS editing frustrations for higher education teams."
+      ]
+    },
+    {
+      "name": "company_category",
+      "format_lock": false,
+      "min_words": 2,
+      "fallback": "N/A",
+      "max_words": 5,
+      "purpose": "Categorize the company using the category they would call themselves.",
+      "instructions": [
+        "Use the category the company would call itself.",
+        "Examples: design-build contractors, roofing & siding contractors, D2C wellness brands, independent fitness studios, ecommerce stores, dental practices.",
+        "Avoid generic labels; use their actual market positioning."
+      ]
+    },
+    {
+      "name": "ideal_customers",
+      "format_lock": true,
+      "fixed_format": "{{target_1}}, {{target_2}}, & {{target_3}}",
+      "min_words": 6,
+      "fallback": "N/A",
+      "max_words": 18,
+      "purpose": "Identify three ideal customer types using a mix of industries and decision makers.",
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Exactly three target types in the form: A, B, & C.",
+        "Mix industry and decision-maker language, based on their site/services.",
+        "Not a sentence. No em dash."
+      ],
+      "good_examples": [
+        "E-commerce owners, SMB decision makers, & tech enterprise teams",
+        "Healthcare founders, finance leaders, & compliance-heavy operators"
+      ]
+    },
+    {
+      "name": "product_complimentary",
+      "format_lock": false,
+      "min_words": 12,
+      "fallback": "N/A",
+      "must_end_with_question_mark": true,
+      "max_words": 32,
+      "purpose": "A short specific compliment about their actual product/service/work, then ONE easy question about that same thing. Not a pitch.",
+      "rules": {
+        "must_do": [
+          "Name a specific product, service, feature, project, or resource from their site.",
+          "Ask exactly one easy (yes/no-style) question tied to that thing.",
+          "Light compliment, casual, company-specific (could not be reused for a competitor)."
+        ],
+        "must_not_do": [
+          "No generic or discovery questions like 'looking for more leads?'.",
+          "Don't pitch your service. Don't ask two questions.",
+          "No over-praise (amazing, incredible, world-class)."
+        ]
+      },
+      "good_examples": [
+        "One more thing, your CYRIN cyber range is sharp. Is that your flagship training product?",
+        "Your zero-knowledge architecture is a strong trust signal. Is that what users value most?",
+        "Your ADA-first Drupal ecommerce work is a rare combo. Are nonprofits your main market for that?"
+      ]
+    },
+    {
+      "name": "value_proposition",
+      "format_lock": true,
+      "min_words": 45,
+      "fallback": "N/A",
+      "max_words": 80,
+      "template": "We specialize in {{revenue_function}} for {{company_category}}, by {{webaholics_mechanism}}. And, I have seen how {{company_name}} {{personalized_observation}}. And, from our experience, {{webaholics_solution}} can {{results_clause}}.",
+      "mechanism_variants": [
+        "building a fast, fully custom website that turns more visitors into leads",
+        "building a conversion-focused site that replaces a patched-together tool stack",
+        "building a clean, AI-developed platform that showcases their work & captures inquiries",
+        "building an SEO-optimized website with built-in lead capture & quote automation",
+        "building a secure, custom site built around their brand instead of a template",
+        "building a modern, fast-loading platform that highlights their strongest offers"
+      ],
+      "solution_variants": [
+        "integrating immersive visuals",
+        "implementing guided quote forms",
+        "elevating their project & product showcases",
+        "restructuring the online experience for clarity",
+        "adding built-in lead capture & follow-up",
+        "a faster, conversion-focused redesign"
+      ],
+      "offer_summary": {
+        "what_we_do": [
+          "Build fully custom, AI-developed websites & web apps.",
+          "Replace fragmented tool stacks (Wix, WordPress, plugins) with one integrated system.",
+          "Add SEO & AI search optimization so they get found on Google & AI platforms.",
+          "Build in lead capture, automation, CRM, & revenue tracking.",
+          "Launch a fast, secure, conversion-focused site in about 30 days."
+        ],
+        "we_never_pitch": [
+          "cheap one-page templates",
+          "generic themes",
+          "single plugins",
+          "invented performance numbers or percentages",
+          "tasks any DIY builder can do"
+        ],
+        "results_we_create": [
+          "more leads & inquiries",
+          "higher conversion",
+          "faster launch (weeks not months)",
+          "lower long-term cost",
+          "a site that tracks revenue"
+        ],
+        "challenges_we_solve": [
+          "slow, dated, or template-based sites",
+          "plugin sprawl & rising tool costs",
+          "poor SEO & low visibility",
+          "high bounce & missed leads",
+          "sites that don't convert"
+        ]
+      },
+      "placeholders": {
+        "revenue_function": {
+          "word_count": "3-7 words",
+          "purpose": "The growth outcome Webaholics creates for THIS company, in the prospect's own world.",
+          "rule": "Lead with the prospect's world, e.g. 'increasing client satisfaction', 'enhancing online visibility', 'increasing residential lead flow', 'increasing D2C brand conversion', 'scaling independent studios'. It is the business outcome, not the build method.",
+          "avoid": [
+            "building websites",
+            "web design",
+            "AI development",
+            "the website itself",
+            "features",
+            "the platform"
+          ]
+        },
+        "company_category": {
+          "word_count": "2-5 words",
+          "purpose": "The category the company would call itself (e.g. design-build contractors, D2C wellness brands, independent fitness studios)."
+        },
+        "webaholics_mechanism": {
+          "word_count": "6-16 words",
+          "purpose": "How Webaholics delivers: building a custom or AI-developed website/platform, tailored to what would help THIS company.",
+          "rule": "Always frame as 'building [adjective] websites/platforms/sites that [benefit tailored to this company]'. Adapt the benefit to the prospect (their portfolio, quotes, classes, products, services). This is Webaholics' real work: fast, custom, secure, conversion-focused sites & apps."
+        },
+        "personalized_observation": {
+          "word_count": "8-22 words",
+          "purpose": "Prove real research: how THIS company runs, drawn only from their site.",
+          "rule": "Grounded in the website only. Never invent clients, metrics, projects, or percentages. No generic compliments."
+        },
+        "webaholics_solution": {
+          "word_count": "2-6 words",
+          "purpose": "The specific digital lever Webaholics applies, e.g. integrating immersive visuals, guided quote forms, elevating showcases, restructuring the online experience."
+        },
+        "results_clause": {
+          "word_count": "5-14 words",
+          "purpose": "2 to 3 commercial outcomes joined naturally with a verb (increase, lift, attract, generate, drive, raise, strengthen, streamline).",
+          "rule": "Commercial outcomes only: more leads, inquiries, bookings, consultations, conversions, sales, signups, memberships, repeat purchases. You may reference Webaholics' standard outcomes (faster launch, lower cost, higher conversion) but never invent company-specific statistics or percentages."
+        }
+      },
+      "example_outputs_to_model_after": [
+        "We specialize in increasing client satisfaction for design-build contractors by building digital platforms that showcase portfolio strength & historical sensitivity. And, I have seen how Godfrey Design-Build brings client visions to life across the North Shore through natural light, smart layouts, & efficient construction workflows. And, from our experience, integrating immersive visuals can increase consultation bookings & amplify project inquiries.",
+        "We specialize in enhancing online visibility for roofing & siding contractors by building SEO-optimized websites with quote automation. And, I have seen how Finishing Touch pairs over 30 years of craftsmanship with family-led service across Montana. And, from our experience, implementing guided quote forms can lift monthly inquiries & shorten the path to a booked estimate.",
+        "We specialize in increasing residential lead flow for insulation contractors by building custom websites that prioritize trust, clarity, & easy quoting. And, I have seen how Hirschi Insulation handles spray foam, batts, retrofits, & even sound insulation with service-oriented care. And, from our experience, better structuring of your online experience can generate more homeowner requests, strengthen local trust, & streamline inspection bookings.",
+        "We specialize in increasing D2C snack & wellness brand conversion for ecommerce brands by building clean, AI-friendly ecommerce visuals & sites. And, I have seen how Melvit Fit Day aligns with health-conscious Gen Z trends through rich lifestyle content. And, from our experience, visual-first commerce can drive retention, clicks, & repeat purchases.",
+        "We specialize in scaling independent fitness studios by building digital platforms that merge class systems, coaching, & brand energy. And, I have seen how Rodeo Athletic Club combines small group strength classes with recovery services. And, from our experience, digital clarity across offers & class types can raise signups, referrals, & long-term memberships."
+      ],
+      "hard_requirements": [
+        "If ICPReview is Non-ICP, return N/A.",
+        "Follow the 3-sentence structure: We specialize in ... for ..., by building ... . And, I have seen how ... . And, from our experience, ... can ... .",
+        "company_name refers to the PROSPECT's company, never the contact's personal name.",
+        "The personalized_observation must be grounded in the website content. Never invent clients, metrics, projects, or percentages.",
+        "The mechanism must always describe Webaholics BUILDING a custom or AI-developed website, platform, or app, tailored to this company.",
+        "Never pitch outbound, cold outreach, lead enrichment, or booking systems. That is a different company. Webaholics builds custom websites & apps.",
+        "Do not use the em dash character."
+      ],
+      "style_note": "Like the examples, each value proposition reads individually researched: 'We specialize in ...' changes per prospect (increasing client satisfaction / enhancing online visibility / scaling independent studios) and the mechanism adapts to what would help THAT company. Never reuse the same wording across companies."
+    }
+  ],
+  "final_json_output_schema": {
+    "ICPReview": "",
+    "ICP_reason": "",
+    "personalized_first_line": "",
+    "company_category": "",
+    "ideal_customers": "",
+    "product_complimentary": "",
+    "value_proposition": ""
+  },
+  "skip_icp": true
+}
