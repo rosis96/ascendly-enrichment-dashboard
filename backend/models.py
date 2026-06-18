@@ -43,6 +43,16 @@ class CustomVariable(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    id = Column(Integer, primary_key=True)
+    slug = Column(String, unique=True, index=True)
+    name = Column(String)
+    base_set = Column(String, default="")   # engine set cloned from; "" = blank
+    profile = Column(JSON, default=dict)     # editable client-profile fields
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class HiddenVariable(Base):
     __tablename__ = "hidden_variables"
     id = Column(Integer, primary_key=True)

@@ -51,6 +51,10 @@ def list_variable_sets():
     return out
 
 
+def engine_set_exists(name):
+    return bool(name) and os.path.exists(os.path.join(VAR_DIR, f"{name}.json"))
+
+
 def list_output_keys(variable_set):
     path = os.path.join(VAR_DIR, f"{variable_set}.json")
     try:
@@ -59,6 +63,14 @@ def list_output_keys(variable_set):
     except Exception:
         return ["ICPReview", "ICP_reason", "personalized_first_line", "company_category",
                 "ideal_customers", "product_complimentary", "value_proposition"]
+
+
+def output_keys_for(base):
+    """Engine output keys for a resolved base set. A blank/unknown base (a blank
+    workspace) yields only the always-on gate fields."""
+    if engine_set_exists(base):
+        return list_output_keys(base)
+    return list(ALWAYS_KEYS)
 
 
 def selectable_enrichments(variable_set):
@@ -122,8 +134,29 @@ def get_profile(name):
             d = json.load(fh)
     except Exception:
         return {"name": name, "fields": []}
-    fields = [{"label": lbl, "value": d.get(key, "")} for key, lbl in _PROFILE_FIELDS if d.get(key)]
-    return {"name": d.get("client_name", name), "fields": fields}
+    return {"name": d.get("client_name", name), "fields": profile_fields_from(d)}
+
+
+def profile_fields_from(d):
+    """List of {key,label,value} for the descriptive profile fields present in d."""
+    return [{"key": key, "label": lbl, "value": d.get(key, "")}
+            for key, lbl in _PROFILE_FIELDS if d.get(key)]
+
+
+def profile_blank_fields():
+    """All descriptive fields, empty — for filling in a new workspace profile."""
+    return [{"key": key, "label": lbl, "value": ""} for key, lbl in _PROFILE_FIELDS]
+
+
+def get_profile_raw(name):
+    """Raw {key: value} of the descriptive fields, for cloning into a workspace."""
+    path = os.path.join(PROFILE_DIR, f"{name}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return {}
+    return {key: d.get(key, "") for key, _ in _PROFILE_FIELDS if d.get(key)}
 
 
 def _variable_description(v):
@@ -309,7 +342,7 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
     title = lead.get("title") or ""
     company = lead.get("company") or "this company"
     website = (lead.get("website") or "").lower()
-    keys = list_output_keys(variable_set)
+    keys = output_keys_for(variable_set)
     res = {k: "" for k in keys}
     for s in custom_specs:
         if s.get("name"):

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import SessionLocal, init_db
-from models import LeadList, Lead, Job, CustomVariable, HiddenVariable
+from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace
 import engine_adapter as ea
 from integrations import reoon
 
@@ -26,6 +26,17 @@ def _custom_specs(s, variable_set):
     """List of engine-format specs for a set's custom variables."""
     rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
     return [r.spec for r in rows]
+
+
+def _base_of(s, key):
+    """Resolve a format-set key (engine set name OR workspace slug) to the engine
+    base set its built-in variables come from. Blank workspace -> ''."""
+    if ea.engine_set_exists(key):
+        return key
+    ws = s.query(Workspace).filter_by(slug=key).first()
+    if ws:
+        return ws.base_set or ""
+    return key
 
 
 def _hidden_names(s, variable_set):
@@ -113,6 +124,7 @@ def _run_job(job_id, target_ids):
         s.commit()
         leads = s.query(Lead).filter(Lead.id.in_(target_ids)).all() if target_ids else []
         custom_specs = _custom_specs(s, job.variable_set)
+        base = _base_of(s, job.variable_set)
         for ld in leads:
             if job_id in CANCEL:
                 break
@@ -120,7 +132,7 @@ def _run_job(job_id, target_ids):
             s.commit()
             res, cost = ea.enrich(
                 {"title": ld.title, "company": ld.company, "website": ld.website},
-                job.variable_set, job.enrichments, custom_specs,
+                base, job.enrichments, custom_specs,
             )
             ld.result = res
             ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
@@ -203,7 +215,12 @@ class VerifyBody(BaseModel):
 
 @app.get("/api/variable-sets")
 def variable_sets():
-    return ea.list_variable_sets()
+    s = SessionLocal()
+    try:
+        ws = [w.slug for w in s.query(Workspace).order_by(Workspace.created_at).all()]
+    finally:
+        s.close()
+    return ea.list_variable_sets() + ws
 
 
 class Placeholder(BaseModel):
@@ -281,7 +298,7 @@ def duplicate_variable(body: DuplicateBody):
         if cv:
             src, base_label = cv.spec, cv.label
         else:
-            bs = ea.get_builtin_spec(body.variable_set, body.name)
+            bs = ea.get_builtin_spec(_base_of(s, body.variable_set), body.name)
             src, base_label = bs, (bs.get("label") if bs else body.name)
         if not src:
             raise HTTPException(404, "Variable not found")
@@ -328,6 +345,88 @@ def set_hidden(body: HideBody):
         s.close()
 
 
+class WorkspaceBody(BaseModel):
+    name: str
+    base_set: str = ""              # engine set to clone, or "" for blank
+    profile: dict = {}
+
+
+class ProfileBody(BaseModel):
+    profile: dict = {}
+
+
+@app.get("/api/workspaces")
+def list_workspaces():
+    """Engine clients (mapped to their lean set) + user-created workspaces."""
+    s = SessionLocal()
+    try:
+        sets = set(ea.list_variable_sets())
+        out = []
+        for client in ea.list_profiles():
+            key = f"{client}_lean" if f"{client}_lean" in sets else next(
+                (x for x in sorted(sets) if x.startswith(client + "_")), f"{client}_lean")
+            out.append({"key": key, "name": client.capitalize(), "kind": "engine", "base_set": key})
+        for w in s.query(Workspace).order_by(Workspace.created_at.desc()).all():
+            out.append({"key": w.slug, "name": w.name, "kind": "workspace", "base_set": w.base_set or ""})
+        return out
+    finally:
+        s.close()
+
+
+@app.post("/api/workspaces")
+def create_workspace(body: WorkspaceBody):
+    s = SessionLocal()
+    try:
+        base = ea.slugify(body.name)
+        slug, i = base, 2
+        while s.query(Workspace).filter_by(slug=slug).first() or ea.engine_set_exists(slug):
+            slug = f"{base}_{i}"; i += 1
+        profile = body.profile or {}
+        if not profile and body.base_set:
+            profile = ea.get_profile_raw(body.base_set.split("_")[0])
+        w = Workspace(slug=slug, name=body.name.strip() or "New workspace",
+                      base_set=body.base_set or "", profile=profile)
+        s.add(w)
+        s.commit()
+        return {"key": w.slug, "name": w.name, "base_set": w.base_set, "kind": "workspace"}
+    finally:
+        s.close()
+
+
+@app.patch("/api/workspaces/{slug}")
+def update_workspace(slug: str, body: ProfileBody):
+    s = SessionLocal()
+    try:
+        w = s.query(Workspace).filter_by(slug=slug).first()
+        if not w:
+            raise HTTPException(404, "Workspace not found")
+        merged = dict(w.profile or {})
+        merged.update(body.profile or {})
+        w.profile = merged
+        s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@app.delete("/api/workspaces/{slug}")
+def delete_workspace(slug: str):
+    s = SessionLocal()
+    try:
+        w = s.query(Workspace).filter_by(slug=slug).first()
+        if w:
+            s.delete(w)
+            s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@app.get("/api/engine-sets")
+def engine_sets():
+    return ea.list_variable_sets()
+
+
 @app.get("/api/profiles")
 def profiles():
     return ea.list_profiles()
@@ -340,9 +439,17 @@ def profile(name: str):
 
 @app.get("/api/format/{variable_set}")
 def format_spec(variable_set: str):
-    spec = ea.format_spec(variable_set)
     s = SessionLocal()
     try:
+        ws = s.query(Workspace).filter_by(slug=variable_set).first()
+        base = _base_of(s, variable_set)
+        spec = ea.format_spec(base) if base else {"variable_set": variable_set, "client": "", "variables": []}
+        spec["variable_set"] = variable_set
+        spec["workspace"] = bool(ws)
+        spec["profile_editable"] = bool(ws)
+        if ws:
+            spec["client_name"] = ws.name
+            spec["profile_fields"] = ea.profile_fields_from(ws.profile or {}) or ea.profile_blank_fields()
         hidden = _hidden_names(s, variable_set)
         rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
         custom_cards = []
@@ -362,16 +469,19 @@ def format_spec(variable_set: str):
 def enrichments(variable_set: str = "ascendly_lean"):
     s = SessionLocal()
     try:
+        base = _base_of(s, variable_set)
         hidden = _hidden_names(s, variable_set)
         rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
         custom_names = [r.name for r in rows]
         labels = {r.name: r.label for r in rows}
     finally:
         s.close()
+    all_keys = ea.output_keys_for(base)
+    selectable = [k for k in all_keys if k not in ea.ALWAYS_KEYS and k not in hidden]
     return {
         "always": ea.ALWAYS_KEYS,
-        "selectable": [k for k in ea.selectable_enrichments(variable_set) if k not in hidden] + custom_names,
-        "all": [k for k in ea.list_output_keys(variable_set) if k not in hidden] + custom_names,
+        "selectable": selectable + custom_names,
+        "all": [k for k in all_keys if k not in hidden] + custom_names,
         "labels": labels,
     }
 
@@ -537,7 +647,7 @@ def export_list(list_id: int):
             raise HTTPException(404, "List not found")
         leads = s.query(Lead).filter_by(list_id=list_id).all()
         hidden = _hidden_names(s, l.variable_set)
-        out_keys = [k for k in ea.list_output_keys(l.variable_set) if k not in hidden] + \
+        out_keys = [k for k in ea.output_keys_for(_base_of(s, l.variable_set)) if k not in hidden] + \
             [c.get("name") for c in _custom_specs(s, l.variable_set)]
         # raw columns first (union across rows), then verification, then enrichment
         raw_cols = []

@@ -195,12 +195,6 @@ function renderBar(d){
   }
 }
 
-function buildScope(total){
-  if(state.selectedLeads.size > 0) return { scope: { lead_ids: [...state.selectedLeads] }, count: state.selectedLeads.size };
-  const lim = parseInt($("limitN").value, 10);
-  if(lim > 0) return { scope: { limit: lim }, count: Math.min(lim, total) };
-  return { scope: {}, count: total };
-}
 
 async function startJob(kind){
   if(!state.listId || state.running) return;
@@ -289,28 +283,42 @@ async function loadFormat(){
   showView("format");
   $("viewTitle").textContent = "Formats";
   $("viewSub").textContent = "Client profile & how each variable is written";
-  if(!state.client) state.client = state.variableSet.split("_")[0];
-  const [profiles, sets, customs] = await Promise.all([
-    api("/api/profiles"), api("/api/variable-sets"),
+  const [sets, customs, fmt] = await Promise.all([
+    api("/api/variable-sets"),
     api("/api/custom-variables?variable_set=" + state.variableSet),
+    api("/api/format/" + state.variableSet),
   ]);
-  const profName = profiles.includes(state.client) ? state.client : profiles[0];
-  const [profile, fmt] = await Promise.all([api("/api/profiles/" + profName), api("/api/format/" + state.variableSet)]);
+  let profile;
+  if(fmt.workspace){
+    profile = { name: fmt.client_name, fields: fmt.profile_fields || [], editable: true };
+  } else {
+    const client = state.variableSet.split("_")[0];
+    const profiles = await api("/api/profiles");
+    const profName = profiles.includes(client) ? client : profiles[0];
+    profile = await api("/api/profiles/" + profName);
+    profile.editable = false;
+  }
   const idByName = {}; customs.forEach(c => idByName[c.name] = c.id);
-  renderFormat(profile, fmt, profiles, sets, profName, idByName);
+  renderFormat(profile, fmt, sets, idByName);
 }
 
-function renderFormat(profile, fmt, profiles, sets, profName, idByName){
-  let h = `<div class="fv-sel">` +
-    `<label>Client <select id="fProfile">` +
-      profiles.map(p => `<option ${p === profName ? "selected" : ""}>${esc(p)}</option>`).join("") + `</select></label>` +
-    `<label>Format set <select id="fSet">` +
-      sets.map(s => `<option ${s === state.variableSet ? "selected" : ""}>${esc(s)}</option>`).join("") + `</select></label>` +
-    `</div>`;
-  h += `<div class="fv-h">Client profile <span class="muted">— who we're writing for</span></div><div class="card">`;
-  if(profile.fields.length)
+function renderFormat(profile, fmt, sets, idByName){
+  let h = `<div class="fv-sel"><label>Format set <select id="fSet">` +
+    sets.map(s => `<option ${s === state.variableSet ? "selected" : ""}>${esc(s)}</option>`).join("") +
+    `</select></label></div>`;
+  h += `<div class="fv-h" style="display:flex;align-items:center">Client profile <span class="muted" style="margin-left:6px">— who we're writing for</span>` +
+    (profile.editable ? `<span class="vacts"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div><div class="card">`;
+  if(profile.editable){
+    profile.fields.forEach(f => {
+      h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">` +
+        `<textarea class="pfield" data-key="${esc(f.key)}" rows="2" placeholder="Describe ${esc(f.label.toLowerCase())}">${esc(f.value)}</textarea></div></div>`;
+    });
+    h += `<div class="brow" style="margin-top:8px"><button class="run" id="wsSaveProfile">Save profile</button></div>`;
+  } else if(profile.fields.length){
     profile.fields.forEach(f => { h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">${esc(f.value)}</div></div>`; });
-  else h += `<div class="v sk">No profile fields for ${esc(profile.name)}.</div>`;
+  } else {
+    h += `<div class="v sk">No profile fields.</div>`;
+  }
   h += `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     `<button class="run" id="addVarBtn" style="margin-left:auto;padding:6px 11px">+ Add variable</button></div>`;
@@ -337,8 +345,9 @@ function renderFormat(profile, fmt, profiles, sets, profName, idByName){
     h += `</div>`;
   });
   $("formatView").innerHTML = h;
-  $("fProfile").onchange = e => { state.client = e.target.value; loadFormat(); };
   $("fSet").onchange = e => { state.variableSet = e.target.value; state.client = e.target.value.split("_")[0]; loadEnrichments(); loadFormat(); };
+  if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
+  if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
   $("cvTemplate").oninput = detectPlaceholders;
   $("cvSave").onclick = saveCustom;
@@ -477,21 +486,70 @@ async function loadSettings(){
 async function toggleWsMenu(){
   const menu = $("wsMenu");
   if(!menu.hidden){ menu.hidden = true; return; }
-  const profiles = await api("/api/profiles");
-  menu.innerHTML = profiles.map(p => `<a data-c="${esc(p)}">${esc(p)}</a>`).join("");
-  menu.querySelectorAll("a").forEach(a => a.onclick = () => { setClient(a.dataset.c); menu.hidden = true; });
+  const wss = await api("/api/workspaces");
+  menu.innerHTML = wss.map(w =>
+    `<a data-key="${esc(w.key)}" data-name="${esc(w.name)}">${esc(w.name)}` +
+    (w.kind === "workspace" ? ` <span style="color:var(--hint);font-size:10px">workspace</span>` : "") + `</a>`
+  ).join("") + `<a id="wsNewItem" style="color:var(--acc-tx)">+ New workspace</a>`;
+  menu.querySelectorAll("a[data-key]").forEach(a => a.onclick = () => { setWorkspace(a.dataset.key, a.dataset.name); menu.hidden = true; });
+  $("wsNewItem").onclick = () => { menu.hidden = true; openNewWorkspace(); };
   menu.hidden = false;
 }
 
-async function setClient(c){
-  state.client = c;
-  $("wsName").textContent = c.charAt(0).toUpperCase() + c.slice(1);
-  $("wsDot").textContent = c.charAt(0).toUpperCase();
-  const sets = await api("/api/variable-sets");
-  state.variableSet = sets.find(s => s === c + "_lean") || sets.find(s => s.startsWith(c + "_")) || state.variableSet;
+async function setWorkspace(key, name){
+  state.variableSet = key;
+  state.client = name;
+  $("wsName").textContent = name;
+  $("wsDot").textContent = (name[0] || "A").toUpperCase();
   await loadEnrichments();
   if(state.view === "format") loadFormat();
   else if(state.view === "settings") loadSettings();
+}
+
+async function openNewWorkspace(){
+  showView("format");
+  $("viewTitle").textContent = "New workspace";
+  $("viewSub").textContent = "Create a client workspace";
+  const engineSets = await api("/api/engine-sets");
+  $("formatView").innerHTML =
+    `<div class="fv-h">New workspace</div><div class="card builder">` +
+    `<input id="wsNewName" placeholder="Client / workspace name   e.g. Acme Co" />` +
+    `<div class="brow">Start from <select id="wsNewBase">` +
+    `<option value="">Blank (build variables yourself)</option>` +
+    engineSets.map(s => `<option value="${esc(s)}">Clone: ${esc(s)}</option>`).join("") +
+    `</select></div>` +
+    `<div class="brow"><button class="run" id="wsCreate">Create workspace</button>` +
+    `<button class="gbtn" id="wsCancelNew">Cancel</button></div></div>`;
+  $("wsCreate").onclick = createWorkspace;
+  $("wsCancelNew").onclick = () => loadFormat();
+}
+
+async function createWorkspace(){
+  const name = $("wsNewName").value.trim();
+  if(!name){ alert("Name the workspace first."); return; }
+  const r = await api("/api/workspaces", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, base_set: $("wsNewBase").value }),
+  });
+  await setWorkspace(r.key, r.name);
+  loadFormat();
+}
+
+async function saveWorkspaceProfile(){
+  const profile = {};
+  $("formatView").querySelectorAll(".pfield").forEach(t => { profile[t.dataset.key] = t.value; });
+  await api("/api/workspaces/" + state.variableSet, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }),
+  });
+  $("wsSaveProfile").textContent = "Saved ✓";
+  setTimeout(() => { if($("wsSaveProfile")) $("wsSaveProfile").textContent = "Save profile"; }, 1500);
+}
+
+async function deleteWorkspace(){
+  if(!confirm("Delete this workspace? Its custom variables go too.")) return;
+  await api("/api/workspaces/" + state.variableSet, { method: "DELETE" });
+  await setWorkspace("ascendly_lean", "Ascendly");
+  loadFormat();
 }
 
 async function createList(){
