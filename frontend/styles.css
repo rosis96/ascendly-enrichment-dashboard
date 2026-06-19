@@ -129,6 +129,7 @@ td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 .brow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:8px}
 .brow input{width:70px;margin:0}
 .phh{font-size:12px;font-weight:600;margin:6px 0 8px}
+.blabel{font-size:12px;font-weight:500;margin:2px 0 6px;color:var(--text)}
 .phcard{border:1px solid var(--line);border-radius:var(--r);padding:10px;margin-bottom:8px;background:var(--surface)}
 .phtok{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--acc-tx);margin-bottom:6px}
 .phcard textarea{background:var(--panel)}

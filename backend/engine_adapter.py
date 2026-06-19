@@ -102,6 +102,8 @@ def duplicate_spec(source_spec, new_label):
     spec["purpose"] = source_spec.get("purpose") or source_spec.get("definition") or ""
     spec["template"] = source_spec.get("template", "")
     spec["placeholders"] = dict(source_spec.get("placeholders", {}))
+    if source_spec.get("example_outputs"):
+        spec["example_outputs"] = list(source_spec["example_outputs"])
     return spec
 
 
@@ -226,8 +228,12 @@ def extract_tokens(template):
     return seen
 
 
-def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose=""):
+def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose="", examples=None):
     """Turn the builder's input into a valid engine-format variable spec.
+
+    Two styles, mixable:
+      * Template style: a {{placeholder}} format + per-placeholder specs.
+      * Free-form style: no template — just `purpose` (how to write it) + examples.
 
     placeholders: list of {token, description, min_words, max_words, examples}
     """
@@ -258,14 +264,25 @@ def build_custom_spec(label, template, placeholders, min_words=None, max_words=N
             item["examples"] = ex
         ph[tok] = item
     spec["placeholders"] = ph
+
+    if isinstance(examples, str):
+        examples = [x.strip() for x in examples.splitlines() if x.strip()]
+    examples = [e for e in (examples or []) if e]
+    if examples:
+        spec["example_outputs"] = examples
     return spec
 
 
 def fill_custom(spec, lead):
-    """Demo-mode renderer: fill a custom template with examples / lead facts."""
-    template = spec.get("template", "")
+    """Demo-mode renderer: fill a custom template, or echo an example for a
+    free-form (no-template) variable."""
+    template = spec.get("template", "") or ""
     ph = spec.get("placeholders", {})
     company = lead.get("company") or "your company"
+
+    if not template.strip():
+        ex = spec.get("example_outputs") or []
+        return str(ex[0]) if ex else f"[{spec.get('label', 'custom')} for {company}]"
 
     def repl(m):
         tok = m.group(1).strip()
@@ -295,6 +312,8 @@ def custom_card(spec):
         if p.get("examples"):
             bits.append("e.g. " + "; ".join(p["examples"][:2]))
         notes.append(" ".join(bits))
+    for e in (spec.get("example_outputs") or [])[:3]:
+        notes.append("Example: " + str(e))
     return {
         "name": spec.get("name", ""),
         "label": spec.get("label", spec.get("name", "")),

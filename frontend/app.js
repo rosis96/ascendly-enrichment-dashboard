@@ -360,11 +360,16 @@ function renderFormat(profile, fmt, sets, idByName){
 
 function builderHtml(){
   return `<div class="card builder" id="builder" hidden>
-    <input id="cvName" placeholder="Variable name   e.g. Short pitch" />
-    <textarea id="cvTemplate" rows="3" placeholder="Paste your format. Use {{placeholders}} for the parts to generate.\ne.g. {{ask about their client}}? We help {{industry}} get {{ideal customers}} by {{what we do}}."></textarea>
+    <input id="cvName" placeholder="Variable name   e.g. Personalization" />
+    <div class="blabel">How to write it — rules & guidance</div>
+    <textarea id="cvGuidance" rows="3" placeholder="Explain in plain words how this should be written. e.g. One sentence opening on a specific, real detail from the prospect's website. No pitch. No greeting. Mention something only someone who read their site would know."></textarea>
+    <div class="blabel">Format <span class="sk">(optional — leave blank for free-form variables like personalization)</span></div>
+    <textarea id="cvTemplate" rows="2" placeholder="Optional. Use {{placeholders}} for fill-in-the-blank parts.\ne.g. We help {{industry}} get {{ideal customers}} by {{what we do}}."></textarea>
     <div class="brow">Whole-variable word range <input id="cvMin" type="number" min="1" placeholder="min" /> to <input id="cvMax" type="number" min="1" placeholder="max" /></div>
     <div class="phh">Placeholders</div>
-    <div id="cvPlaceholders"><div class="sk">Add {{placeholders}} above to describe them here.</div></div>
+    <div id="cvPlaceholders"><div class="sk">Add {{placeholders}} in the format above to describe them here.</div></div>
+    <div class="blabel">Examples <span class="sk">(one per line — sample outputs that show the AI what good looks like)</span></div>
+    <textarea id="cvExamples" rows="3" placeholder="Your work for Acme Dental shows a clear focus on local clinics.\nThe way you bundle SEO with paid search is a sharp combo for B2B teams."></textarea>
     <div class="brow"><button class="run" id="cvSave">Save variable</button><button class="gbtn" id="cvCancel">Cancel</button></div>
   </div>`;
 }
@@ -390,7 +395,7 @@ function detectPlaceholders(){
 
 function resetBuilder(){
   state.editId = null;
-  ["cvName", "cvTemplate", "cvMin", "cvMax"].forEach(id => { if($(id)) $(id).value = ""; });
+  ["cvName", "cvGuidance", "cvTemplate", "cvMin", "cvMax", "cvExamples"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("cvPlaceholders")) detectPlaceholders();
   if($("cvSave")) $("cvSave").textContent = "Save variable";
 }
@@ -398,6 +403,9 @@ function resetBuilder(){
 async function saveCustom(){
   const label = $("cvName").value.trim();
   if(!label){ alert("Give the variable a name first."); return; }
+  const guidance = $("cvGuidance").value.trim();
+  const template = $("cvTemplate").value;
+  if(!guidance && !template.trim()){ alert("Add either guidance (how to write it) or a {{format}}."); return; }
   const placeholders = [...$("cvPlaceholders").querySelectorAll("[data-tok]")].map(el => ({
     token: el.dataset.tok,
     description: el.querySelector(".pdesc").value.trim(),
@@ -405,8 +413,9 @@ async function saveCustom(){
     max_words: parseInt(el.querySelector(".pmax").value, 10) || null,
     examples: el.querySelector(".pex").value.split("\n").map(s => s.trim()).filter(Boolean),
   }));
+  const examples = $("cvExamples").value.split("\n").map(s => s.trim()).filter(Boolean);
   const body = {
-    variable_set: state.variableSet, label, template: $("cvTemplate").value,
+    variable_set: state.variableSet, label, template, purpose: guidance, examples,
     min_words: parseInt($("cvMin").value, 10) || null, max_words: parseInt($("cvMax").value, 10) || null,
     placeholders, id: state.editId,
   };
@@ -424,9 +433,11 @@ async function editCustom(id){
   $("builder").hidden = false;
   state.editId = id;
   $("cvName").value = spec.label || row.label || "";
+  $("cvGuidance").value = spec.purpose || "";
   $("cvTemplate").value = spec.template || "";
   $("cvMin").value = spec.min_words || "";
   $("cvMax").value = spec.max_words || "";
+  $("cvExamples").value = (spec.example_outputs || []).join("\n");
   detectPlaceholders();
   const ph = spec.placeholders || {};
   $("cvPlaceholders").querySelectorAll("[data-tok]").forEach(el => {

@@ -246,7 +246,8 @@ class CustomVarBody(BaseModel):
     variable_set: str
     label: str
     template: str = ""
-    purpose: str = ""
+    purpose: str = ""           # free-form "how to write it" guidance
+    examples: list[str] = []    # example outputs (for free-form variables)
     min_words: Optional[int] = None
     max_words: Optional[int] = None
     placeholders: list[Placeholder] = []
@@ -279,7 +280,8 @@ def create_custom(body: CustomVarBody):
     spec = ea.build_custom_spec(
         label=body.label, template=body.template,
         placeholders=[p.dict() for p in body.placeholders],
-        min_words=body.min_words, max_words=body.max_words, purpose=body.purpose,
+        min_words=body.min_words, max_words=body.max_words,
+        purpose=body.purpose, examples=body.examples,
     )
     s = SessionLocal()
     try:
