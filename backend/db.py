@@ -9,6 +9,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_URL = os.getenv("DASHBOARD_DB_URL", f"sqlite:///{os.path.join(DATA_DIR, 'app.db')}")
 
+# Managed Postgres providers (Railway, Neon, Supabase) often hand out a
+# "postgres://" URL, which SQLAlchemy 2.0 rejects. Normalize it.
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
 connect_args = {"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
 engine = create_engine(DB_URL, connect_args=connect_args, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

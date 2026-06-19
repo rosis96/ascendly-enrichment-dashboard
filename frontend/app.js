@@ -311,9 +311,9 @@ function renderFormat(profile, fmt, sets, idByName){
   if(profile.editable){
     profile.fields.forEach(f => {
       h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">` +
-        `<textarea class="pfield" data-key="${esc(f.key)}" rows="2" placeholder="Describe ${esc(f.label.toLowerCase())}">${esc(f.value)}</textarea></div></div>`;
+        `<textarea class="pfield" data-key="${esc(f.key)}" rows="3" placeholder="Describe ${esc(f.label.toLowerCase())}">${esc(f.value)}</textarea></div></div>`;
     });
-    h += `<div class="brow" style="margin-top:8px"><button class="run" id="wsSaveProfile">Save profile</button></div>`;
+    h += `<div class="brow" style="margin-top:10px"><button class="run" id="wsSaveProfile">Save profile</button><span class="savedmsg" id="wsSavedMsg"></span></div>`;
   } else if(profile.fields.length){
     profile.fields.forEach(f => { h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">${esc(f.value)}</div></div>`; });
   } else {
@@ -501,9 +501,26 @@ async function setWorkspace(key, name){
   state.client = name;
   $("wsName").textContent = name;
   $("wsDot").textContent = (name[0] || "A").toUpperCase();
+  try{ localStorage.setItem("ws", JSON.stringify({ key, name })); }catch(e){}
   await loadEnrichments();
   if(state.view === "format") loadFormat();
   else if(state.view === "settings") loadSettings();
+}
+
+async function restoreWorkspace(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem("ws") || "null"); }catch(e){}
+  if(!saved || !saved.key) return;
+  try{
+    const wss = await api("/api/workspaces");
+    const match = wss.find(w => w.key === saved.key);
+    if(match){
+      state.variableSet = match.key;
+      state.client = match.name;
+      $("wsName").textContent = match.name;
+      $("wsDot").textContent = (match.name[0] || "A").toUpperCase();
+    }
+  }catch(e){}
 }
 
 async function openNewWorkspace(){
@@ -538,11 +555,18 @@ async function createWorkspace(){
 async function saveWorkspaceProfile(){
   const profile = {};
   $("formatView").querySelectorAll(".pfield").forEach(t => { profile[t.dataset.key] = t.value; });
-  await api("/api/workspaces/" + state.variableSet, {
-    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }),
-  });
-  $("wsSaveProfile").textContent = "Saved ✓";
-  setTimeout(() => { if($("wsSaveProfile")) $("wsSaveProfile").textContent = "Save profile"; }, 1500);
+  const btn = $("wsSaveProfile"), msg = $("wsSavedMsg");
+  btn.textContent = "Saving…";
+  try{
+    await api("/api/workspaces/" + state.variableSet, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }),
+    });
+    const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if(msg) msg.textContent = `✓ Saved at ${t}`;
+  }catch(e){
+    if(msg){ msg.textContent = "Save failed — try again"; msg.style.color = "var(--red-tx)"; }
+  }
+  btn.textContent = "Save profile";
 }
 
 async function deleteWorkspace(){
@@ -615,7 +639,7 @@ function init(){
   const savedLimit = localStorage.getItem("defLimit"); if(savedLimit) $("limitN").value = savedLimit;
   showView("table");
   loadBalance();
-  loadEnrichments().then(loadLists);
+  restoreWorkspace().then(() => loadEnrichments()).then(loadLists);
 }
 
 init();
