@@ -470,11 +470,14 @@ async function loadSettings(){
   $("viewTitle").textContent = "Settings";
   $("viewSub").textContent = "Connections & defaults";
   let b = {}; try{ b = await api("/api/reoon/balance"); }catch(e){}
+  let st = {}; try{ st = await api("/api/status"); }catch(e){}
   const reoon = !b.enabled ? "Demo mode (no REOON_API_KEY set)"
     : (b.error ? "Key set, but balance check failed" : `Connected · ${b.instant ?? 0} instant credits`);
+  const storage = st.db ? `${st.db}${st.persistent ? " · persists across deploys" : " · resets on each deploy ⚠️"}` : "unknown";
   const def = localStorage.getItem("defLimit") || "10";
   $("settingsView").innerHTML =
     `<div class="fv-h">Settings</div><div class="card">` +
+    `<div class="kv"><div class="k">Storage</div><div class="v">${esc(storage)}</div></div>` +
     `<div class="kv"><div class="k">Reoon verification</div><div class="v">${esc(reoon)}</div></div>` +
     `<div class="kv"><div class="k">Enrichment</div><div class="v">Demo mode (set ENRICH_MODE=real to use the live engine)</div></div>` +
     `<div class="kv"><div class="k">Active format set</div><div class="v">${esc(state.variableSet)}</div></div>` +

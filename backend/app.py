@@ -624,6 +624,20 @@ def verify_list(list_id: int, body: VerifyBody):
     return {"job_id": job_id, "count": len(target_ids)}
 
 
+@app.get("/api/status")
+def status():
+    from db import DB_URL
+    if DB_URL.startswith("postgresql"):
+        backend, persistent = "Postgres (Neon)", True
+    elif "/data/" in DB_URL:
+        backend, persistent = "SQLite on Volume", True
+    elif DB_URL.startswith("sqlite"):
+        backend, persistent = "SQLite (local file)", False
+    else:
+        backend, persistent = "Custom", True
+    return {"db": backend, "persistent": persistent}
+
+
 @app.get("/api/reoon/balance")
 def reoon_balance():
     if not reoon.enabled():
