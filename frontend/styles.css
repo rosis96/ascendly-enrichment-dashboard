@@ -34,6 +34,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .nav a.on .ic{color:var(--acc-tx)}
 .ct{margin-left:auto;font-size:10.5px;color:var(--hint);background:var(--panel);border-radius:10px;padding:0 6px}
 .nav a.on .ct{background:var(--acc-br);color:var(--acc-tx)}
+.nav a .ldel{margin-left:6px;color:var(--hint);opacity:0;font-size:11px;flex:none}
+.nav a:hover .ldel{opacity:1}
+.nav a .ldel:hover{color:var(--red-tx)}
+#app.mini .ldel{display:none}
 .nav-add{color:var(--acc-tx);font-weight:500}
 .nav-add .ic{color:var(--acc-tx)}
 .set{margin-top:auto}

@@ -525,6 +525,20 @@ def create_list(body: CreateList):
         s.close()
 
 
+@app.delete("/api/lists/{list_id}")
+def delete_list(list_id: int):
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if l:
+            s.query(Job).filter_by(list_id=list_id).delete()
+            s.delete(l)  # leads cascade-delete with the list
+            s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
 @app.post("/api/lists/{list_id}/upload")
 async def upload(list_id: int, file: UploadFile = File(...)):
     s = SessionLocal()

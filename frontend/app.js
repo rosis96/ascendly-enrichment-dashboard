@@ -65,10 +65,24 @@ async function loadLists(){
   lists.forEach(l => {
     const a = document.createElement("a");
     if(l.id === state.listId) a.className = "on";
-    a.innerHTML = `<span class="ic">▦</span><span class="lbl">${esc(l.name)}</span><span class="ct">${kfmt(l.count)}</span>`;
+    a.innerHTML = `<span class="ic">▦</span><span class="lbl">${esc(l.name)}</span>` +
+      `<span class="ct">${kfmt(l.count)}</span><span class="ldel" title="Delete list">✕</span>`;
     a.onclick = () => selectList(l.id, l.name, l.count);
+    a.querySelector(".ldel").onclick = e => { e.stopPropagation(); deleteList(l.id, l.name); };
     nav.appendChild(a);
   });
+}
+
+async function deleteList(id, name){
+  if(!confirm(`Delete list "${name}" and all its leads? This can't be undone.`)) return;
+  await api("/api/lists/" + id, { method: "DELETE" });
+  if(state.listId === id){
+    state.listId = null;
+    $("viewTitle").textContent = "No list selected";
+    $("viewSub").textContent = "";
+    $("grid").hidden = true; $("empty").hidden = false; $("gridtools").hidden = true;
+  }
+  loadLists();
 }
 
 function kfmt(n){ return n >= 1000 ? (n/1000).toFixed(1) + "k" : String(n); }
