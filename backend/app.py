@@ -472,9 +472,11 @@ def format_spec(variable_set: str):
             custom_cards.append(card)
     finally:
         s.close()
-    for v in spec.get("variables", []):
+    cset = {c["name"] for c in custom_cards}  # custom overrides same-named built-in
+    builtins = [v for v in spec.get("variables", []) if v.get("name") not in cset]
+    for v in builtins:
         v["hidden"] = v.get("name") in hidden
-    spec["variables"] = spec.get("variables", []) + custom_cards
+    spec["variables"] = builtins + custom_cards
     return spec
 
 
@@ -490,11 +492,12 @@ def enrichments(variable_set: str = "ascendly_lean"):
     finally:
         s.close()
     all_keys = ea.output_keys_for(base)
-    selectable = [k for k in all_keys if k not in ea.ALWAYS_KEYS and k not in hidden]
+    cset = set(custom_names)  # custom variables override same-named built-ins
+    selectable = [k for k in all_keys if k not in ea.ALWAYS_KEYS and k not in hidden and k not in cset]
     return {
         "always": ea.ALWAYS_KEYS,
         "selectable": selectable + custom_names,
-        "all": [k for k in all_keys if k not in hidden] + custom_names,
+        "all": [k for k in all_keys if k not in hidden and k not in cset] + custom_names,
         "labels": labels,
     }
 
@@ -688,8 +691,10 @@ def export_list(list_id: int):
             raise HTTPException(404, "List not found")
         leads = s.query(Lead).filter_by(list_id=list_id).all()
         hidden = _hidden_names(s, l.variable_set)
-        out_keys = [k for k in ea.output_keys_for(_base_of(s, l.variable_set)) if k not in hidden] + \
-            [c.get("name") for c in _custom_specs(s, l.variable_set)]
+        custom_names = [c.get("name") for c in _custom_specs(s, l.variable_set)]
+        cset = set(custom_names)
+        out_keys = [k for k in ea.output_keys_for(_base_of(s, l.variable_set))
+                    if k not in hidden and k not in cset] + custom_names
         # raw columns first (union across rows), then verification, then enrichment
         raw_cols = []
         for ld in leads:

@@ -147,3 +147,13 @@ td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 .prog{height:5px;border-radius:4px;background:var(--line);flex:1;overflow:hidden}
 .prog>i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s}
 .cost{font-size:12px;font-weight:500;color:var(--acc-tx);min-width:54px;text-align:right}
+.leadcell{cursor:pointer}
+.drawer{position:fixed;top:0;right:0;width:460px;max-width:92vw;height:100vh;background:var(--panel);border-left:1px solid var(--line);box-shadow:-10px 0 30px rgba(0,0,0,.10);padding:18px 20px;overflow:auto;z-index:60}
+.dtop{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.dname{font-size:15px;font-weight:600}
+.dsub{font-size:12px;color:var(--hint)}
+.dclose{margin-left:auto;cursor:pointer;color:var(--hint);font-size:16px}
+.drow{padding:6px 0;font-size:13px}
+.dfield{padding:11px 0;border-top:1px solid var(--line)}
+.dk{font-size:11px;color:var(--hint);margin-bottom:4px}
+.dval{font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text)}

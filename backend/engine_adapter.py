@@ -389,11 +389,12 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
         res["_status"] = "ok"
         return res, 0.01
 
-    # 3) ICP -> fill built-in + custom variables.
+    # 3) ICP -> fill built-in + custom variables (custom overrides same-named built-in).
+    custom_names = {s.get("name") for s in custom_specs if s.get("name")}
     res["ICPReview"] = "ICP"
     res["ICP_reason"] = "Marketing/branding agency"
     for k in keys:
-        if k in ALWAYS_KEYS:
+        if k in ALWAYS_KEYS or k in custom_names:
             continue
         res[k] = _demo_value(k, company)
     for s in custom_specs:

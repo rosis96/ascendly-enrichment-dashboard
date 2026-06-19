@@ -139,7 +139,7 @@ function renderGrid(d){
     const tr = document.createElement("tr");
     const ck = state.selectedLeads.has(ld.id) ? "checked" : "";
     let cells = `<td class="cbx"><input type="checkbox" class="rowcb" data-id="${ld.id}" ${ck}></td>`;
-    cells += `<td class="lead"><b>${esc(ld.first_name)} ${esc(ld.last_name)}</b>` +
+    cells += `<td class="lead leadcell" data-id="${ld.id}"><b>${esc(ld.first_name)} ${esc(ld.last_name)}</b>` +
       `<s>${esc(ld.company)}${ld.title ? " · " + esc(ld.title) : ""}</s></td>`;
     cells += `<td>${emailCell(ld, r)}</td>`;
     cells += `<td>${titleCell(ld, r)}</td>`;
@@ -167,7 +167,29 @@ function renderGrid(d){
       updateScope();
     };
   });
+  const byId = {}; view.forEach(l => { byId[l.id] = l; });
+  body.querySelectorAll(".leadcell").forEach(c => c.onclick = () => openDetail(byId[c.dataset.id]));
   updateScope();
+}
+
+function openDetail(ld){
+  if(!ld) return;
+  const r = ld.result || {};
+  const keys = Object.keys(r).filter(k => !k.startsWith("_"));
+  let h = `<div class="dtop"><div><div class="dname">${esc(ld.first_name)} ${esc(ld.last_name)}</div>` +
+    `<div class="dsub">${esc(ld.company)}${ld.title ? " · " + esc(ld.title) : ""}</div></div>` +
+    `<span class="dclose" id="dClose">✕</span></div>`;
+  h += `<div class="drow"><span class="dk">Email</span> ${esc(ld.email || "—")}` +
+    (ld.email_status ? ` <span class="reason">(${esc(ld.email_status)})</span>` : "") + `</div>`;
+  if(!keys.length){
+    h += `<div class="sk" style="margin-top:12px">Not enriched yet.</div>`;
+  } else {
+    keys.forEach(k => {
+      h += `<div class="dfield"><div class="dk">${esc(pretty(k))}</div><div class="dval">${esc(r[k] || "—")}</div></div>`;
+    });
+  }
+  const d = $("detail"); d.innerHTML = h; d.hidden = false;
+  $("dClose").onclick = () => { d.hidden = true; };
 }
 
 function updateScope(){
