@@ -404,17 +404,95 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
     return res, round(0.024 + 0.004 * len(custom_specs), 4)
 
 
-def enrich(lead, variable_set, selected=None, custom_specs=None):
+def load_client_profile(name):
+    """Full client profile JSON from the engine, or {}."""
+    try:
+        with open(os.path.join(PROFILE_DIR, f"{name}.json"), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def enrich(lead, base, selected=None, custom_specs=None, profile=None):
     """Entry point used by the job runner. Switches on ENRICH_MODE."""
     if os.getenv("ENRICH_MODE", "demo").lower() == "real":
-        return _real_enrich(lead, variable_set, selected)
-    return demo_enrich(lead, variable_set, selected, custom_specs)
+        return _real_enrich(lead, base, selected, custom_specs, profile)
+    return demo_enrich(lead, base, selected, custom_specs)
 
 
-def _real_enrich(lead, variable_set, selected=None):
-    """Lazy hook into the actual engine. Off by default; needs OPENAI_API_KEY and
-    the engine's deps installed. Left thin until integration docs land."""
-    raise NotImplementedError(
-        "Real enrichment is not wired yet. Set ENRICH_MODE=demo for now. "
-        "Real mode will import engine/run.py process_row once keys + provider docs are in."
-    )
+def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
+    """Run the live engine for one lead, using the workspace's profile + the
+    effective variable set (custom variables override same-named built-ins)."""
+    import sys
+    if ENGINE_DIR not in sys.path:
+        sys.path.insert(0, ENGINE_DIR)
+    try:
+        import run as engine
+        from openai import OpenAI
+    except Exception as exc:
+        return ({"_status": "error", "_error": f"engine deps not installed: {exc}"[:300]}, 0.0)
+
+    base_spec = {}
+    if engine_set_exists(base):
+        try:
+            with open(os.path.join(VAR_DIR, f"{base}.json"), "r", encoding="utf-8") as fh:
+                base_spec = json.load(fh)
+        except Exception:
+            base_spec = {}
+    base_vars = {v.get("name"): v for v in base_spec.get("variables", [])}
+    custom_by_name = {s["name"]: s for s in (custom_specs or []) if s.get("name")}
+
+    # Build only the selected variables (+ the always-on gate fields).
+    want = list(ALWAYS_KEYS) + [k for k in (selected or []) if k not in ALWAYS_KEYS]
+    variables, seen = [], set()
+    for k in want:
+        if k in seen:
+            continue
+        seen.add(k)
+        if k in custom_by_name:          # custom overrides built-in
+            variables.append(custom_by_name[k])
+        elif k in base_vars:
+            variables.append(base_vars[k])
+        elif k == "ICPReview":
+            variables.append({"name": "ICPReview", "min_words": 1, "max_words": 1,
+                              "allowed_values": ["ICP", "Non-ICP"], "purpose": "Decide ICP or Non-ICP."})
+        elif k == "ICP_reason":
+            variables.append({"name": "ICP_reason", "min_words": 3, "max_words": 5,
+                              "purpose": "3 to 5 word reason for the ICP decision."})
+
+    vs = {
+        "variable_set_name": "dashboard",
+        "max_tokens": base_spec.get("max_tokens", 2200),
+        "temperature": base_spec.get("temperature", 0.7),
+        "output_keys": [v["name"] for v in variables],
+        "global_output_rules": base_spec.get("global_output_rules", []),
+        "variables": variables,
+    }
+    if base_spec.get("icp_definition"):
+        vs["icp_definition"] = base_spec["icp_definition"]
+    if base_spec.get("skip_icp") or (profile or {}).get("skip_icp"):
+        vs["skip_icp"] = True
+
+    row = dict(lead)
+    row["website"] = lead.get("website") or lead.get("Website") or ""
+
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        result = engine.process_row(client, profile or {}, vs, row, "website", max_pages=3, use_cache=True)
+    except Exception as exc:
+        return ({"_status": "error", "_error": f"{type(exc).__name__}: {exc}"[:300]}, 0.0)
+
+    # tag title-gate rejections so the grid can show / count them
+    reason = str(result.get("ICP_reason", "")).lower()
+    if result.get("ICPReview") == "Non-ICP" and "title" in reason:
+        result["_title_gate"] = "rejected"
+    elif result.get("ICPReview") == "ICP":
+        result["_title_gate"] = "pass"
+
+    if result.get("ICPReview") == "ICP":
+        cost = 0.045
+    elif result.get("_title_gate") == "rejected":
+        cost = 0.003
+    else:
+        cost = 0.012
+    return (result, cost)

@@ -75,7 +75,12 @@ async function loadLists(){
 
 async function deleteList(id, name){
   if(!confirm(`Delete list "${name}" and all its leads? This can't be undone.`)) return;
-  await api("/api/lists/" + id, { method: "DELETE" });
+  try{
+    await api("/api/lists/" + id, { method: "DELETE" });
+  }catch(e){
+    alert("Couldn't delete the list: " + e.message);
+    return;
+  }
   if(state.listId === id){
     state.listId = null;
     $("viewTitle").textContent = "No list selected";

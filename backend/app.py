@@ -49,6 +49,16 @@ def _lead_safe(ld):
         return False
     return reoon.bucket(ld.verify)[0] == "valid"
 
+
+def _profile_for(s, key, base):
+    """Client profile for enrichment: a workspace's editable profile, or the
+    engine client's full profile file."""
+    ws = s.query(Workspace).filter_by(slug=key).first()
+    if ws:
+        return dict(ws.profile or {})
+    client = (base or key).split("_")[0]
+    return ea.load_client_profile(client)
+
 init_db()
 
 app = FastAPI(title="Ascendly Lead Enrichment Dashboard")
@@ -136,15 +146,20 @@ def _run_job(job_id, target_ids):
         leads = s.query(Lead).filter(Lead.id.in_(target_ids)).all() if target_ids else []
         custom_specs = _custom_specs(s, job.variable_set)
         base = _base_of(s, job.variable_set)
+        profile = _profile_for(s, job.variable_set, base)
         for ld in leads:
             if job_id in CANCEL:
                 break
             ld.status = "running"
             s.commit()
-            res, cost = ea.enrich(
-                {"title": ld.title, "company": ld.company, "website": ld.website},
-                base, job.enrichments, custom_specs,
-            )
+            row = dict(ld.data or {})
+            row.update({
+                "title": ld.title, "company": ld.company, "website": ld.website, "email": ld.email,
+                "Title": (ld.data or {}).get("Title") or ld.title,
+                "Company": (ld.data or {}).get("Company") or ld.company,
+                "companyName": (ld.data or {}).get("companyName") or ld.company,
+            })
+            res, cost = ea.enrich(row, base, job.enrichments, custom_specs, profile)
             ld.result = res
             ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
             job.done += 1
@@ -532,11 +547,12 @@ def create_list(body: CreateList):
 def delete_list(list_id: int):
     s = SessionLocal()
     try:
-        l = s.get(LeadList, list_id)
-        if l:
-            s.query(Job).filter_by(list_id=list_id).delete()
-            s.delete(l)  # leads cascade-delete with the list
-            s.commit()
+        # Bulk deletes (one SQL statement each) — fast even for thousands of leads
+        # over a remote Postgres, instead of per-row ORM cascade.
+        s.query(Job).filter_by(list_id=list_id).delete(synchronize_session=False)
+        s.query(Lead).filter_by(list_id=list_id).delete(synchronize_session=False)
+        s.query(LeadList).filter_by(id=list_id).delete(synchronize_session=False)
+        s.commit()
         return {"ok": True}
     finally:
         s.close()

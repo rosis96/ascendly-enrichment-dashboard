@@ -4,3 +4,8 @@ sqlalchemy
 python-multipart
 requests
 psycopg2-binary
+openai
+beautifulsoup4
+python-dotenv
+pandas
+tqdm
