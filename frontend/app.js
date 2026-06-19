@@ -8,7 +8,15 @@ const LABELS = {
 };
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
-  view: "table", client: "ascendly", labels: {}, editId: null };
+  view: "table", client: "ascendly", labels: {}, editId: null, filter: "all" };
+
+function leadCat(ld){
+  if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
+  const r = ld.result;
+  if(r._title_gate === "rejected") return "rejected";
+  if(r.ICPReview === "Non-ICP") return "nonicp";
+  return "enriched";
+}
 
 function isSafeLead(ld){
   const v = ld.verify || {};
@@ -89,12 +97,30 @@ function renderGrid(d){
   const leads = d.leads || [];
   $("empty").hidden = leads.length > 0;
   const grid = $("grid"); grid.hidden = leads.length === 0;
+
+  // filter bar with counts
+  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0 };
+  leads.forEach(l => { counts[leadCat(l)]++; });
+  const gt = $("gridtools");
+  gt.hidden = leads.length === 0;
+  const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
+    ["rejected", "Title-rejected"], ["notrun", "Not run"]];
+  gt.innerHTML = chips.map(([k, label]) =>
+    `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
+  gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; renderGrid(d); });
+
+  // apply filter; in "all", surface enriched rows to the top
+  let view = state.filter === "all" ? leads.slice() : leads.filter(l => leadCat(l) === state.filter);
+  if(state.filter === "all"){
+    view.sort((a, b) => (leadCat(a) === "enriched" ? 0 : 1) - (leadCat(b) === "enriched" ? 0 : 1));
+  }
+
   const cols = ["Email · Reoon", "Title gate", "ICP", ...state.selected.map(pretty)];
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
     cols.map(c => `<th>${esc(c)}</th>`).join("") +
     `<th style="color:var(--acc-tx);cursor:pointer">+ enrichment</th>`;
   const body = $("body"); body.innerHTML = "";
-  leads.forEach(ld => {
+  view.forEach(ld => {
     const r = ld.result || {};
     const tr = document.createElement("tr");
     const ck = state.selectedLeads.has(ld.id) ? "checked" : "";
@@ -112,10 +138,10 @@ function renderGrid(d){
 
   const selAll = $("selAll");
   if(selAll){
-    selAll.checked = leads.length > 0 && leads.every(l => state.selectedLeads.has(l.id));
+    selAll.checked = view.length > 0 && view.every(l => state.selectedLeads.has(l.id));
     selAll.onchange = () => {
-      if(selAll.checked) leads.forEach(l => state.selectedLeads.add(l.id));
-      else leads.forEach(l => state.selectedLeads.delete(l.id));
+      if(selAll.checked) view.forEach(l => state.selectedLeads.add(l.id));
+      else view.forEach(l => state.selectedLeads.delete(l.id));
       renderGrid(d); updateScope();
     };
   }
@@ -123,7 +149,7 @@ function renderGrid(d){
     cb.onchange = () => {
       const id = +cb.dataset.id;
       cb.checked ? state.selectedLeads.add(id) : state.selectedLeads.delete(id);
-      const sa = $("selAll"); if(sa) sa.checked = leads.every(l => state.selectedLeads.has(l.id));
+      const sa = $("selAll"); if(sa) sa.checked = view.every(l => state.selectedLeads.has(l.id));
       updateScope();
     };
   });
@@ -270,6 +296,7 @@ function showView(name){
   state.view = name;
   $("gridWrap").hidden = name !== "table";
   $("runbar").hidden = name !== "table";
+  if(name !== "table") $("gridtools").hidden = true;
   $("formatView").hidden = name !== "format";
   $("settingsView").hidden = name !== "settings";
   const t = name === "table";

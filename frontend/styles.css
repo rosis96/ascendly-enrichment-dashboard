@@ -78,7 +78,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 input,#listName{height:34px;border:1px solid var(--line);border-radius:var(--r);padding:0 11px;font-family:inherit;font-size:12.5px;background:var(--panel);color:var(--text)}
 input:focus{outline:none;border-color:var(--acc-br);box-shadow:0 0 0 3px var(--acc-bg)}
 
-.gw{flex:1;overflow:auto;margin-top:10px}
+.gridtools{display:flex;gap:7px;flex-wrap:wrap;padding:9px 14px 0}
+.fchip{font-size:12px;padding:4px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
+.fchip b{font-weight:500;color:var(--text)}
+.fchip.on{background:var(--acc-bg);border-color:var(--acc-br);color:var(--acc-tx)}
+.fchip.on b{color:var(--acc-tx)}
+.gw{flex:1;overflow:auto;margin-top:8px}
 .empty{color:var(--hint);font-size:13px;padding:40px 16px;text-align:center}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th{position:sticky;top:0;background:var(--panel);text-align:left;font-weight:400;color:var(--hint);font-size:11px;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
