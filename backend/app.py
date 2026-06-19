@@ -74,6 +74,17 @@ async def basic_auth(request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def no_cache_assets(request, call_next):
+    """Stop the browser caching the SPA shell + assets, so a new deploy is seen
+    immediately without a hard refresh."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/assets"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 
 # Job ids requested to stop. Checked before each lead so a run halts promptly
