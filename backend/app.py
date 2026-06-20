@@ -137,86 +137,197 @@ def _parse_csv(content_bytes):
     return out
 
 
-def _run_job(job_id, target_ids):
+ENRICH_WORKERS = int(os.getenv("ENRICH_WORKERS", "10"))
+VERIFY_WORKERS = int(os.getenv("VERIFY_WORKERS", "10"))
+
+
+def _lead_row(ld):
+    row = dict(ld.data or {})
+    row.update({
+        "title": ld.title, "company": ld.company, "website": ld.website, "email": ld.email,
+        "Title": (ld.data or {}).get("Title") or ld.title,
+        "Company": (ld.data or {}).get("Company") or ld.company,
+        "companyName": (ld.data or {}).get("companyName") or ld.company,
+    })
+    return row
+
+
+def _apply_agg(job, agg):
+    if job.kind == "verify":
+        job.cost = agg.get("cr", 0)
+        job.summary = {"valid": agg.get("valid", 0), "risky": agg.get("risky", 0), "invalid": agg.get("invalid", 0)}
+    elif job.kind == "pipeline":
+        job.cost = round(agg.get("cost", 0), 4)
+        job.summary = {k: agg.get(k, 0) for k in ("verified", "safe", "enriched", "unsafe", "rejected", "cr")}
+    else:
+        job.cost = round(agg.get("cost", 0), 4)
+        job.icp = agg.get("icp", 0)
+        job.nonicp = agg.get("nonicp", 0)
+        job.rejected = agg.get("rejected", 0)
+
+
+def _write_job(job_id, done, agg, status=None):
     s = SessionLocal()
     try:
         job = s.get(Job, job_id)
-        job.status = "running"
+        if not job:
+            return
+        job.done = done
+        _apply_agg(job, agg)
+        if status:
+            job.status = status
         s.commit()
-        leads = s.query(Lead).filter(Lead.id.in_(target_ids)).all() if target_ids else []
-        custom_specs = _custom_specs(s, job.variable_set)
-        base = _base_of(s, job.variable_set)
-        profile = _profile_for(s, job.variable_set, base)
-        for ld in leads:
-            if job_id in CANCEL:
-                break
-            ld.status = "running"
-            s.commit()
-            row = dict(ld.data or {})
-            row.update({
-                "title": ld.title, "company": ld.company, "website": ld.website, "email": ld.email,
-                "Title": (ld.data or {}).get("Title") or ld.title,
-                "Company": (ld.data or {}).get("Company") or ld.company,
-                "companyName": (ld.data or {}).get("companyName") or ld.company,
-            })
-            res, cost = ea.enrich(row, base, job.enrichments, custom_specs, profile)
-            ld.result = res
-            ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
-            job.done += 1
-            job.cost = round((job.cost or 0) + cost, 4)
-            if res.get("_title_gate") == "rejected":
-                job.rejected += 1
-            elif res.get("ICPReview") == "Non-ICP":
-                job.nonicp += 1
-            else:
-                job.icp += 1
-            s.commit()
-            time.sleep(0.04)  # keeps the demo visibly progressing
-        job = s.get(Job, job_id)
-        job.status = "cancelled" if job_id in CANCEL else "done"
-        s.commit()
+    finally:
+        s.close()
+
+
+def _process_concurrent(job_id, target_ids, worker_fn, workers):
+    """Run worker_fn(lead_id) across a thread pool. Each worker uses its own DB
+    session and returns a dict of counter increments. Cancel-aware and resumable."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    _write_job(job_id, 0, {}, status="running")
+    agg, done = {}, 0
+
+    def task(lid):
+        if job_id in CANCEL:
+            return None
+        try:
+            return worker_fn(lid)
+        except Exception:
+            return {"_error": 1}
+
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            futures = [ex.submit(task, lid) for lid in target_ids]
+            for fut in as_completed(futures):
+                r = fut.result()
+                done += 1
+                if r:
+                    for k, v in r.items():
+                        agg[k] = agg.get(k, 0) + v
+                if done % 5 == 0:
+                    _write_job(job_id, done, agg)
+        _write_job(job_id, done, agg, status="cancelled" if job_id in CANCEL else "done")
     except Exception:
-        job = s.get(Job, job_id)
-        if job:
-            job.status = "error"
-            s.commit()
+        _write_job(job_id, done, agg, status="error")
     finally:
         CANCEL.discard(job_id)
+
+
+def _enrich_one(lead_id, base, enrichments, custom_specs, profile):
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if not ld:
+            return None
+        ld.status = "running"
+        s.commit()
+        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
+        ld.result = res
+        ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
+        s.commit()
+        inc = {"cost": cost}
+        if res.get("_title_gate") == "rejected":
+            inc["rejected"] = 1
+        elif res.get("ICPReview") == "Non-ICP":
+            inc["nonicp"] = 1
+        else:
+            inc["icp"] = 1
+        return inc
+    finally:
         s.close()
+
+
+def _verify_one(lead_id, mode):
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if not ld:
+            return None
+        res = reoon.verify_one(ld.email, mode)
+        bucket, label = reoon.bucket(res)
+        ld.verify = res
+        ld.email_status = label
+        s.commit()
+        return {"cr": 1, bucket: 1}
+    finally:
+        s.close()
+
+
+def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile):
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if not ld:
+            return None
+        inc = {}
+        if not ld.verify:
+            res = reoon.verify_one(ld.email, mode)
+            _, label = reoon.bucket(res)
+            ld.verify = res
+            ld.email_status = label
+            s.commit()
+            inc["cr"] = 1
+            inc["verified"] = 1
+        safe = reoon.bucket(ld.verify)[0] == "valid"
+        if safe:
+            inc["safe"] = 1
+            if not ld.result:
+                ld.status = "running"
+                s.commit()
+                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
+                ld.result = r
+                ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
+                s.commit()
+                inc["cost"] = cost
+                if r.get("_title_gate") == "rejected":
+                    inc["rejected"] = 1
+                else:
+                    inc["enriched"] = 1
+        else:
+            inc["unsafe"] = 1
+        return inc
+    finally:
+        s.close()
+
+
+def _run_job(job_id, target_ids):
+    from functools import partial
+    s = SessionLocal()
+    try:
+        job = s.get(Job, job_id)
+        base = _base_of(s, job.variable_set)
+        custom_specs = _custom_specs(s, job.variable_set)
+        profile = _profile_for(s, job.variable_set, base)
+        enrichments = job.enrichments
+    finally:
+        s.close()
+    _process_concurrent(job_id, target_ids,
+                        partial(_enrich_one, base=base, enrichments=enrichments,
+                                custom_specs=custom_specs, profile=profile),
+                        ENRICH_WORKERS)
 
 
 def _run_verify_job(job_id, target_ids, mode):
+    from functools import partial
+    _process_concurrent(job_id, target_ids, partial(_verify_one, mode=mode), VERIFY_WORKERS)
+
+
+def _run_pipeline_job(job_id, target_ids, mode):
+    from functools import partial
     s = SessionLocal()
     try:
         job = s.get(Job, job_id)
-        job.status = "running"
-        s.commit()
-        leads = s.query(Lead).filter(Lead.id.in_(target_ids)).all() if target_ids else []
-        summary = {"valid": 0, "risky": 0, "invalid": 0}
-        for ld in leads:
-            if job_id in CANCEL:
-                break
-            res = reoon.verify_one(ld.email, mode)
-            b, label = reoon.bucket(res)
-            ld.verify = res
-            ld.email_status = label
-            summary[b] += 1
-            job.done += 1
-            job.cost = round((job.cost or 0) + 1, 0)  # ~1 Reoon credit per email
-            job.summary = dict(summary)
-            s.commit()
-            time.sleep(0.04)
-        job = s.get(Job, job_id)
-        job.status = "cancelled" if job_id in CANCEL else "done"
-        s.commit()
-    except Exception:
-        job = s.get(Job, job_id)
-        if job:
-            job.status = "error"
-            s.commit()
+        base = _base_of(s, job.variable_set)
+        custom_specs = _custom_specs(s, job.variable_set)
+        profile = _profile_for(s, job.variable_set, base)
+        enrichments = job.enrichments
     finally:
-        CANCEL.discard(job_id)
         s.close()
+    _process_concurrent(job_id, target_ids,
+                        partial(_pipeline_one, mode=mode, base=base, enrichments=enrichments,
+                                custom_specs=custom_specs, profile=profile),
+                        ENRICH_WORKERS)
 
 
 # ------------------------- API -------------------------
@@ -231,12 +342,22 @@ class RunBody(BaseModel):
     lead_ids: list[int] = []     # run only these leads (selection)
     limit: Optional[int] = None  # otherwise run only the first N (test cap)
     only_safe: bool = True       # only enrich leads Reoon marked safe/deliverable
+    skip_done: bool = True        # resume: skip leads already enriched
 
 
 class VerifyBody(BaseModel):
     lead_ids: list[int] = []
     limit: Optional[int] = None
     mode: str = "power"          # reoon mode: power (accurate) or quick (fast)
+    skip_done: bool = True        # resume: skip leads already verified
+
+
+class PipelineBody(BaseModel):
+    enrichments: list[str] = []
+    lead_ids: list[int] = []
+    limit: Optional[int] = None
+    mode: str = "power"
+    skip_done: bool = True
 
 
 @app.get("/api/variable-sets")
@@ -518,11 +639,14 @@ def enrichments(variable_set: str = "ascendly_lean"):
 
 
 @app.get("/api/lists")
-def get_lists():
+def get_lists(variable_set: Optional[str] = None):
     s = SessionLocal()
     try:
+        q = s.query(LeadList)
+        if variable_set:  # scope lists to the current workspace
+            q = q.filter_by(variable_set=variable_set)
         out = []
-        for l in s.query(LeadList).order_by(LeadList.created_at.desc()).all():
+        for l in q.order_by(LeadList.created_at.desc()).all():
             count = s.query(Lead).filter_by(list_id=l.id).count()
             out.append({"id": l.id, "name": l.name, "variable_set": l.variable_set,
                         "count": count, "created_at": l.created_at.isoformat()})
@@ -619,15 +743,16 @@ def run_list(list_id: int, body: RunBody):
         else:
             candidates = q.all()
         # Verify-first: only enrich leads Reoon marked safe/deliverable.
-        if body.only_safe:
-            targets = [ld for ld in candidates if _lead_safe(ld)]
+        safe_leads = [ld for ld in candidates if _lead_safe(ld)] if body.only_safe else list(candidates)
+        skipped_unsafe = len(candidates) - len(safe_leads)
+        if body.skip_done:
+            targets = [ld for ld in safe_leads if not ld.result]  # resume: skip already enriched
         else:
-            targets = candidates
-        skipped_unsafe = len(candidates) - len(targets)
-        # Reset only the leads we're about to run; earlier results are preserved.
-        for ld in targets:
-            ld.status = "pending"
-            ld.result = {}
+            targets = safe_leads
+            for ld in targets:
+                ld.status = "pending"
+                ld.result = {}
+        skipped_done = len(safe_leads) - len(targets)
         job = Job(list_id=list_id, variable_set=l.variable_set, enrichments=body.enrichments,
                   status="queued" if targets else "done", total=len(targets))
         s.add(job)
@@ -638,7 +763,8 @@ def run_list(list_id: int, body: RunBody):
         s.close()
     if target_ids:
         threading.Thread(target=_run_job, args=(job_id, target_ids), daemon=True).start()
-    return {"job_id": job_id, "count": len(target_ids), "skipped_unsafe": skipped_unsafe}
+    return {"job_id": job_id, "count": len(target_ids),
+            "skipped_unsafe": skipped_unsafe, "skipped_done": skipped_done}
 
 
 @app.post("/api/lists/{list_id}/verify")
@@ -650,23 +776,64 @@ def verify_list(list_id: int, body: VerifyBody):
             raise HTTPException(404, "List not found")
         q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
         if body.lead_ids:
-            targets = q.filter(Lead.id.in_(body.lead_ids)).all()
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
         elif body.limit and body.limit > 0:
-            targets = q.limit(body.limit).all()
+            candidates = q.limit(body.limit).all()
         else:
-            targets = q.all()
-        for ld in targets:
-            ld.verify = {}
-            ld.email_status = ""
-        job = Job(list_id=list_id, kind="verify", status="queued", total=len(targets),
-                  variable_set=l.variable_set, summary={})
+            candidates = q.all()
+        if body.skip_done:
+            targets = [ld for ld in candidates if not ld.verify]  # resume: skip verified
+        else:
+            targets = candidates
+            for ld in targets:
+                ld.verify = {}
+                ld.email_status = ""
+        skipped_done = len(candidates) - len(targets)
+        job = Job(list_id=list_id, kind="verify", status="queued" if targets else "done",
+                  total=len(targets), variable_set=l.variable_set, summary={})
         s.add(job)
         s.commit()
         job_id = job.id
         target_ids = [ld.id for ld in targets]
     finally:
         s.close()
-    threading.Thread(target=_run_verify_job, args=(job_id, target_ids, body.mode), daemon=True).start()
+    if target_ids:
+        threading.Thread(target=_run_verify_job, args=(job_id, target_ids, body.mode), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids), "skipped_done": skipped_done}
+
+
+@app.post("/api/lists/{list_id}/run-pipeline")
+def run_pipeline(list_id: int, body: PipelineBody):
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if not l:
+            raise HTTPException(404, "List not found")
+        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        if body.lead_ids:
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
+        elif body.limit and body.limit > 0:
+            candidates = q.limit(body.limit).all()
+        else:
+            candidates = q.all()
+
+        def done(ld):
+            if not ld.verify:
+                return False
+            safe = reoon.bucket(ld.verify)[0] == "valid"
+            return (not safe) or bool(ld.result)  # nothing left to do
+
+        targets = [ld for ld in candidates if not done(ld)] if body.skip_done else candidates
+        job = Job(list_id=list_id, kind="pipeline", status="queued" if targets else "done",
+                  total=len(targets), variable_set=l.variable_set, enrichments=body.enrichments, summary={})
+        s.add(job)
+        s.commit()
+        job_id = job.id
+        target_ids = [ld.id for ld in targets]
+    finally:
+        s.close()
+    if target_ids:
+        threading.Thread(target=_run_pipeline_job, args=(job_id, target_ids, body.mode), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids)}
 
 
@@ -699,13 +866,17 @@ def reoon_balance():
 
 
 @app.get("/api/lists/{list_id}/export")
-def export_list(list_id: int):
+def export_list(list_id: int, ids: Optional[str] = None):
     s = SessionLocal()
     try:
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        leads = s.query(Lead).filter_by(list_id=list_id).all()
+        q = s.query(Lead).filter_by(list_id=list_id)
+        if ids:  # export only the selected / filtered leads
+            wanted = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+            q = q.filter(Lead.id.in_(wanted))
+        leads = q.all()
         hidden = _hidden_names(s, l.variable_set)
         custom_names = [c.get("name") for c in _custom_specs(s, l.variable_set)]
         cset = set(custom_names)

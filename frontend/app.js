@@ -59,7 +59,7 @@ async function loadEnrichments(){
 }
 
 async function loadLists(){
-  const lists = await api("/api/lists");
+  const lists = await api("/api/lists?variable_set=" + encodeURIComponent(state.variableSet));
   const nav = $("lists");
   nav.innerHTML = "";
   lists.forEach(l => {
@@ -101,15 +101,35 @@ async function selectList(id, name, count){
   state.running = false; updateRunUI();
   $("viewTitle").textContent = name;
   $("viewSub").textContent = `${count} leads · ${state.variableSet}`;
+  try{ localStorage.setItem("lastList", JSON.stringify({ ws: state.variableSet, id })); }catch(e){}
   await loadLists();
-  await refresh();
+  const d = await refresh();
+  // resume: if a job is still running for this list, start showing live progress
+  if(d && d.job && ["queued", "running", "cancelling"].includes(d.job.status)){
+    startPolling(d.job.id);
+  }
 }
 
 async function refresh(){
-  if(!state.listId) return;
+  if(!state.listId) return null;
   const d = await api(`/api/lists/${state.listId}`);
   renderGrid(d);
   renderBar(d);
+  return d;
+}
+
+function startPolling(jobId){
+  state.jobId = jobId; state.running = true; updateRunUI();
+  if(state.poll) clearInterval(state.poll);
+  state.poll = setInterval(async () => {
+    let j;
+    try{ j = await api("/api/jobs/" + jobId); }catch(e){ return; }
+    await refresh();
+    if(["done", "error", "cancelled"].includes(j.status)){
+      clearInterval(state.poll); state.poll = null; state.running = false; updateRunUI();
+      loadBalance(); loadLists();
+    }
+  }, 800);
 }
 
 function renderGrid(d){
@@ -133,6 +153,7 @@ function renderGrid(d){
   if(state.filter === "all"){
     view.sort((a, b) => (leadCat(a) === "enriched" ? 0 : 1) - (leadCat(b) === "enriched" ? 0 : 1));
   }
+  state.viewIds = view.map(l => l.id);
 
   const cols = ["Email · Reoon", "Title gate", "ICP", ...state.selected.map(pretty)];
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
@@ -205,9 +226,14 @@ function updateScope(){
 }
 
 function updateRunUI(){
-  $("runBtn").hidden = state.running;
-  $("stopBtn").hidden = !state.running;
-  const b2 = $("runBtn2"); if(b2) b2.disabled = state.running;
+  const t = state.view === "table";
+  const running = state.running;
+  ["runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
+    const e = $(id); if(e) e.style.display = (t && !running) ? "" : "none";
+  });
+  const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
+  const sc = $("scope"); if(sc) sc.style.display = t ? "" : "none";
+  const b2 = $("runBtn2"); if(b2) b2.disabled = running;
 }
 
 function hasResult(ld){ return ld.result && Object.keys(ld.result).length > 0; }
@@ -248,17 +274,24 @@ function renderBar(d){
     bar.style.width = "0%"; cost.textContent = ""; return; }
   const pct = j.total ? Math.round(100 * j.done / j.total) : 0;
   bar.style.width = pct + "%";
+  const live = ["queued", "running", "cancelling"].includes(j.status);
+  const pre = live ? "● Running · " : (j.status === "cancelled" ? "Stopped · " : "");
+  const s = j.summary || {};
   if(j.kind === "verify"){
-    const s = j.summary || {};
     cost.textContent = `${j.cost || 0} cr`;
-    const tail = j.status === "done" || j.status === "cancelled"
+    const tail = (j.status === "done" || j.status === "cancelled")
       ? ` · ${s.valid||0} valid · ${s.risky||0} risky · ${s.invalid||0} invalid` : "";
-    stat.textContent = `${j.done} of ${j.total} verified${tail}${j.status === "cancelled" ? " · stopped" : ""}`;
+    stat.textContent = `${pre}${j.done} of ${j.total} verified${tail}`;
+  } else if(j.kind === "pipeline"){
+    cost.textContent = `${s.cr||0} cr · $${(j.cost || 0).toFixed(2)}`;
+    const tail = (j.status === "done" || j.status === "cancelled")
+      ? ` · ${s.enriched||0} enriched · ${s.unsafe||0} unsafe · ${s.rejected||0} title-rejected` : "";
+    stat.textContent = `${pre}${j.done} of ${j.total} processed${tail}`;
   } else {
     cost.textContent = "$" + (j.cost || 0).toFixed(2);
-    const tail = j.status === "done" || j.status === "cancelled"
-      ? ` · ${j.icp} ICP · ${j.nonicp} Non-ICP · ${j.rejected} title-rejected` : ` · ${state.selected.length} enrichments`;
-    stat.textContent = `${j.done} of ${j.total} enriched${tail}${j.status === "cancelled" ? " · stopped" : ""}`;
+    const tail = (j.status === "done" || j.status === "cancelled")
+      ? ` · ${j.icp} ICP · ${j.nonicp} Non-ICP · ${j.rejected} title-rejected` : "";
+    stat.textContent = `${pre}${j.done} of ${j.total} enriched${tail}`;
   }
 }
 
@@ -278,40 +311,41 @@ async function startJob(kind){
     else { candidates = leads; scope = {}; }
   }
 
-  const onlySafe = kind === "enrich" && $("onlySafe").checked;
-  const eligible = onlySafe ? candidates.filter(isSafeLead) : candidates;
+  // resume-aware eligibility: skip leads already done
+  let eligible;
+  if(kind === "verify"){
+    eligible = candidates.filter(l => !hasVerify(l));
+  } else if(kind === "pipeline"){
+    eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
+  } else {
+    const onlySafe = $("onlySafe").checked;
+    eligible = candidates.filter(l => (!onlySafe || isSafeLead(l)) && !hasResult(l));
+  }
   const count = eligible.length;
-
-  if(kind === "enrich" && onlySafe && count === 0){
-    alert("No verified-safe leads in this scope. Run Verify first, then enrich the Safe ones.");
+  if(count === 0){
+    alert("Nothing to do in this scope — those leads are already " + (kind === "verify" ? "verified" : "done") + ".");
     return;
   }
-  const verb = kind === "verify" ? "verify" : "enrich";
-  const credit = kind === "verify" ? "Reoon" : "API";
-  const extra = onlySafe && candidates.length - count > 0 ? ` (skipping ${candidates.length - count} not-safe)` : "";
-  if(count > 50 && !confirm(`This will ${verb} ${count} leads${extra} and use ${credit} credit. Continue?`)) return;
 
-  const ep = kind === "verify" ? "verify" : "run";
-  const body = Object.assign({}, scope);
-  if(kind === "enrich"){ body.enrichments = state.selected; body.only_safe = onlySafe; }
+  const verb = kind === "verify" ? "verify" : (kind === "pipeline" ? "verify + enrich" : "enrich");
+  const credit = kind === "verify" ? "Reoon" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI");
+  if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
+
+  const ep = kind === "verify" ? "verify" : (kind === "pipeline" ? "run-pipeline" : "run");
+  const body = Object.assign({ skip_done: true }, scope);
+  if(kind !== "verify") body.enrichments = state.selected;
+  if(kind === "enrich") body.only_safe = $("onlySafe").checked;
+
   const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  state.jobId = job_id; state.running = true; updateRunUI();
-  if(state.poll) clearInterval(state.poll);
-  state.poll = setInterval(async () => {
-    const j = await api(`/api/jobs/${job_id}`);
-    await refresh();
-    if(["done", "error", "cancelled"].includes(j.status)){
-      clearInterval(state.poll); state.poll = null; state.running = false; updateRunUI();
-      if(kind === "verify") loadBalance();
-    }
-  }, 500);
+  startPolling(job_id);
 }
 
 const run = () => startJob("enrich");
 const verify = () => startJob("verify");
+const pipeline = () => startJob("pipeline");
 
 async function stop(){
   if(!state.jobId) return;
@@ -320,7 +354,10 @@ async function stop(){
 
 function exportCsv(){
   if(!state.listId) return;
-  window.location = `/api/lists/${state.listId}/export`;
+  let ids = "";
+  if(state.selectedLeads.size > 0) ids = [...state.selectedLeads].join(",");
+  else if(state.filter !== "all") ids = (state.viewIds || []).join(",");
+  window.location = `/api/lists/${state.listId}/export` + (ids ? `?ids=${encodeURIComponent(ids)}` : "");
 }
 
 async function loadBalance(){
@@ -340,11 +377,7 @@ function showView(name){
   if(name !== "table") $("gridtools").hidden = true;
   $("formatView").hidden = name !== "format";
   $("settingsView").hidden = name !== "settings";
-  const t = name === "table";
-  ["scope", "importBtn", "exportBtn", "verifyBtn", "runBtn", "stopBtn"].forEach(id => {
-    const e = $(id); if(e) e.style.display = t ? "" : "none";
-  });
-  if(t) updateRunUI();
+  updateRunUI();
 }
 
 async function loadFormat(){
@@ -584,8 +617,19 @@ async function setWorkspace(key, name){
   $("wsName").textContent = name;
   $("wsDot").textContent = (name[0] || "A").toUpperCase();
   try{ localStorage.setItem("ws", JSON.stringify({ key, name })); }catch(e){}
+  // lists are scoped per workspace — clear current selection and reload them
+  state.listId = null; state.selectedLeads.clear();
+  if(state.poll){ clearInterval(state.poll); state.poll = null; }
+  state.running = false;
   await loadEnrichments();
-  if(state.view === "format") loadFormat();
+  await loadLists();
+  if(state.view === "table"){
+    $("viewTitle").textContent = "No list selected";
+    $("viewSub").textContent = "Pick a list, or import one";
+    $("grid").hidden = true; $("empty").hidden = false; $("gridtools").hidden = true;
+    renderBar({ list: { count: 0 } });
+    updateRunUI();
+  } else if(state.view === "format") loadFormat();
   else if(state.view === "settings") loadSettings();
 }
 
@@ -715,13 +759,25 @@ function init(){
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
   $("runBtn").onclick = $("runBtn2").onclick = run;
   $("verifyBtn").onclick = verify;
+  $("pipelineBtn").onclick = pipeline;
   $("exportBtn").onclick = $("exportNav").onclick = exportCsv;
   $("stopBtn").onclick = stop;
   $("limitN").oninput = updateScope;
   const savedLimit = localStorage.getItem("defLimit"); if(savedLimit) $("limitN").value = savedLimit;
   showView("table");
   loadBalance();
-  restoreWorkspace().then(() => loadEnrichments()).then(loadLists);
+  restoreWorkspace().then(() => loadEnrichments()).then(() => loadLists()).then(restoreLastList);
+}
+
+async function restoreLastList(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem("lastList") || "null"); }catch(e){}
+  if(!saved || saved.ws !== state.variableSet) return;
+  try{
+    const lists = await api("/api/lists?variable_set=" + encodeURIComponent(state.variableSet));
+    const m = lists.find(l => l.id === saved.id);
+    if(m) selectList(m.id, m.name, m.count);
+  }catch(e){}
 }
 
 init();

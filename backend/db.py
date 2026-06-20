@@ -14,8 +14,11 @@ DB_URL = os.getenv("DASHBOARD_DB_URL", f"sqlite:///{os.path.join(DATA_DIR, 'app.
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
-connect_args = {"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
-engine = create_engine(DB_URL, connect_args=connect_args, future=True)
+if DB_URL.startswith("sqlite"):
+    engine = create_engine(DB_URL, connect_args={"check_same_thread": False, "timeout": 30}, future=True)
+else:
+    # bigger pool so concurrent workers each get a connection (Postgres/Neon)
+    engine = create_engine(DB_URL, pool_size=20, max_overflow=10, pool_pre_ping=True, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
 
