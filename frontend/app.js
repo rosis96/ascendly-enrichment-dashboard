@@ -13,6 +13,7 @@ const state = { listId: null, variableSet: "ascendly_lean", selectable: [], sele
 function leadCat(ld){
   if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
   const r = ld.result;
+  if(r._status === "error") return "error";
   if(r._title_gate === "rejected") return "rejected";
   if(r.ICPReview === "Non-ICP") return "nonicp";
   return "enriched";
@@ -138,12 +139,12 @@ function renderGrid(d){
   const grid = $("grid"); grid.hidden = leads.length === 0;
 
   // filter bar with counts
-  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0 };
+  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0 };
   leads.forEach(l => { counts[leadCat(l)]++; });
   const gt = $("gridtools");
   gt.hidden = leads.length === 0;
   const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
-    ["rejected", "Title-rejected"], ["notrun", "Not run"]];
+    ["rejected", "Title-rejected"], ["error", "No website"], ["notrun", "Not run"]];
   gt.innerHTML = chips.map(([k, label]) =>
     `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
   gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; renderGrid(d); });
@@ -250,17 +251,20 @@ function emailCell(ld){
 }
 function titleCell(ld, r){
   if(!hasResult(ld)) return `<span class="sk">queued</span>`;
+  if(r._status === "error") return `<span class="pill p-amber">no website</span>`;
   if(r._title_gate === "rejected") return `<span class="pill p-red">✕ Rejected</span>`;
   return `<span class="pill p-green">Pass</span>`;
 }
 function icpCell(ld, r){
   if(!hasResult(ld)) return `<span class="sk">queued</span>`;
+  if(r._status === "error") return `<span class="sk">site unreachable</span>`;
   if(r._title_gate === "rejected") return `<span class="sk">skipped</span>`;
   if(r.ICPReview === "ICP") return `<span class="pill p-acc">ICP</span><span class="reason">${esc(r.ICP_reason||"")}</span>`;
   return `<span class="pill p-gray">Non-ICP</span><span class="reason">${esc(r.ICP_reason||"")}</span>`;
 }
 function varCell(ld, r, k){
   if(!hasResult(ld)) return `<span class="sk">queued</span>`;
+  if(r._status === "error") return `<span class="sk">—</span>`;
   const v = r[k];
   if(v === undefined || v === "") return `<span class="sk">—</span>`;
   if(v === "N/A") return `<span class="sk">N/A</span>`;
@@ -311,6 +315,7 @@ async function startJob(kind){
     else { candidates = leads; scope = {}; }
   }
 
+  const onlySafe = $("onlySafe").checked;
   // resume-aware eligibility: skip leads already done
   let eligible;
   if(kind === "verify"){
@@ -318,23 +323,27 @@ async function startJob(kind){
   } else if(kind === "pipeline"){
     eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
   } else {
-    const onlySafe = $("onlySafe").checked;
     eligible = candidates.filter(l => (!onlySafe || isSafeLead(l)) && !hasResult(l));
   }
-  const count = eligible.length;
-  if(count === 0){
-    alert("Nothing to do in this scope — those leads are already " + (kind === "verify" ? "verified" : "done") + ".");
-    return;
+
+  let skipDone = true;
+  if(eligible.length === 0){
+    if(kind === "verify"){ alert("All leads in scope are already verified."); return; }
+    if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
+    skipDone = false;
+    eligible = kind === "pipeline" ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
+    if(eligible.length === 0){ alert("Nothing to run in this scope."); return; }
   }
+  const count = eligible.length;
 
   const verb = kind === "verify" ? "verify" : (kind === "pipeline" ? "verify + enrich" : "enrich");
   const credit = kind === "verify" ? "Reoon" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI");
   if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
 
   const ep = kind === "verify" ? "verify" : (kind === "pipeline" ? "run-pipeline" : "run");
-  const body = Object.assign({ skip_done: true }, scope);
+  const body = Object.assign({ skip_done: skipDone }, scope);
   if(kind !== "verify") body.enrichments = state.selected;
-  if(kind === "enrich") body.only_safe = $("onlySafe").checked;
+  if(kind === "enrich") body.only_safe = onlySafe;
 
   const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
     method: "POST", headers: { "Content-Type": "application/json" },

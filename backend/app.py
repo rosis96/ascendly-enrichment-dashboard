@@ -142,14 +142,21 @@ VERIFY_WORKERS = int(os.getenv("VERIFY_WORKERS", "10"))
 
 
 def _lead_row(ld):
-    row = dict(ld.data or {})
-    row.update({
-        "title": ld.title, "company": ld.company, "website": ld.website, "email": ld.email,
-        "Title": (ld.data or {}).get("Title") or ld.title,
-        "Company": (ld.data or {}).get("Company") or ld.company,
-        "companyName": (ld.data or {}).get("companyName") or ld.company,
-    })
-    return row
+    """Deliberately MINIMAL row. Only the website (to scrape), the title (title
+    gate) and the company name (grounding) — plus names/email for scrubbing.
+    No other CSV columns, so the writer cannot cite Apollo data (revenue,
+    employee counts, locations, etc.); it must use website facts only."""
+    return {
+        "website": ld.website or "",
+        "Title": ld.title or "",
+        "title": ld.title or "",
+        "Company": ld.company or "",
+        "companyName": ld.company or "",
+        "company": ld.company or "",
+        "First Name": ld.first_name or "",
+        "Last Name": ld.last_name or "",
+        "email": ld.email or "",
+    }
 
 
 def _apply_agg(job, agg):
@@ -223,6 +230,12 @@ def _enrich_one(lead_id, base, enrichments, custom_specs, profile):
         ld.status = "running"
         s.commit()
         res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
+        if res.get("_status") == "error" or not res.get("ICPReview"):
+            # website unreachable / unreadable -> no copy, just mark it
+            ld.result = {"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]}
+            ld.status = "error"
+            s.commit()
+            return {"error": 1, "cost": cost}
         ld.result = res
         ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
         s.commit()
@@ -276,14 +289,20 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile):
                 ld.status = "running"
                 s.commit()
                 r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
-                ld.result = r
-                ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
-                s.commit()
                 inc["cost"] = cost
-                if r.get("_title_gate") == "rejected":
-                    inc["rejected"] = 1
+                if r.get("_status") == "error" or not r.get("ICPReview"):
+                    ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
+                    ld.status = "error"
+                    s.commit()
+                    inc["error"] = 1
                 else:
-                    inc["enriched"] = 1
+                    ld.result = r
+                    ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
+                    s.commit()
+                    if r.get("_title_gate") == "rejected":
+                        inc["rejected"] = 1
+                    else:
+                        inc["enriched"] = 1
         else:
             inc["unsafe"] = 1
         return inc
@@ -823,7 +842,12 @@ def run_pipeline(list_id: int, body: PipelineBody):
             safe = reoon.bucket(ld.verify)[0] == "valid"
             return (not safe) or bool(ld.result)  # nothing left to do
 
-        targets = [ld for ld in candidates if not done(ld)] if body.skip_done else candidates
+        if body.skip_done:
+            targets = [ld for ld in candidates if not done(ld)]
+        else:
+            targets = candidates
+            for ld in targets:
+                ld.result = {}  # re-enrich (verification is kept to save credits)
         job = Job(list_id=list_id, kind="pipeline", status="queued" if targets else "done",
                   total=len(targets), variable_set=l.variable_set, enrichments=body.enrichments, summary={})
         s.add(job)

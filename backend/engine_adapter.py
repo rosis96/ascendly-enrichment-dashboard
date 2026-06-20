@@ -460,12 +460,25 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
             variables.append({"name": "ICP_reason", "min_words": 3, "max_words": 5,
                               "purpose": "3 to 5 word reason for the ICP decision."})
 
+    # Website-only rule for every workspace: drop the base rule that allowed CSV
+    # row context, and add hard rules so the writer never cites Apollo/CSV data.
+    base_rules = [r for r in base_spec.get("global_output_rules", [])
+                  if "csv row context" not in str(r).lower()]
+    website_rules = [
+        "CRITICAL: Use ONLY facts found in the scraped website content. Do NOT use, infer, "
+        "or cite any data from the CSV/row (revenue, employee counts, funding, locations, founding "
+        "year, or ANY numbers) unless that exact fact also appears verbatim in the scraped website text.",
+        "Never invent, assume, estimate, or extrapolate. If a fact is not on the website, do not state it.",
+        "Do not put specific numbers (dollar amounts, revenue, employee counts, years) in the copy "
+        "unless those exact numbers appear in the scraped website content.",
+        "If the website has little or no usable scraped content, do not fabricate copy.",
+    ]
     vs = {
         "variable_set_name": "dashboard",
         "max_tokens": base_spec.get("max_tokens", 2200),
         "temperature": base_spec.get("temperature", 0.7),
         "output_keys": [v["name"] for v in variables],
-        "global_output_rules": base_spec.get("global_output_rules", []),
+        "global_output_rules": base_rules + website_rules,
         "variables": variables,
     }
     if base_spec.get("icp_definition"):
