@@ -29,6 +29,7 @@ class Lead(Base):
     result = Column(JSON, default=dict)      # {ICPReview, ICP_reason, _title_gate, <vars>, _status}
     verify = Column(JSON, default=dict)      # raw Reoon result
     email_status = Column(String, default="")  # reoon status label (safe/catch_all/invalid/...)
+    industry = Column(String, default="")    # umbrella industry from website classification
     status = Column(String, default="pending")  # pending | running | done | skipped
     list = relationship("LeadList", back_populates="leads")
 

@@ -1,14 +1,9 @@
 const API = "";
-const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦" };
+const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤" };
 const VBUCKET = { valid: "p-green", risky: "p-amber", invalid: "p-red" };
-const LABELS = {
-  personalized_first_line: "First line", company_category: "Category",
-  ideal_customers: "Ideal customers", product_complimentary: "Compliment Q",
-  value_proposition: "Value prop",
-};
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
-  view: "table", client: "ascendly", labels: {}, editId: null, filter: "all" };
+  view: "table", client: "ascendly", labels: {}, editId: null, filter: "all", industryFilter: "" };
 
 function leadCat(ld){
   if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
@@ -26,7 +21,7 @@ function isSafeLead(ld){
 }
 
 function $(id){ return document.getElementById(id); }
-function pretty(k){ return state.labels[k] || LABELS[k] || k.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()); }
+function pretty(k){ return state.labels[k] || (k || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 function icons(){ document.querySelectorAll("[data-i]").forEach(e => e.textContent = ICONS[e.getAttribute("data-i")] || ""); }
 
 async function api(path, opts){
@@ -72,6 +67,13 @@ async function loadLists(){
     a.querySelector(".ldel").onclick = e => { e.stopPropagation(); deleteList(l.id, l.name); };
     nav.appendChild(a);
   });
+}
+
+async function splitByIndustry(){
+  if(!confirm("Create a separate list for each industry? (Copies leads into new per-industry lists; the original stays.)")) return;
+  const r = await api(`/api/lists/${state.listId}/split-by-industry`, { method: "POST" });
+  alert(`Created ${r.created.length} industry lists.`);
+  loadLists();
 }
 
 async function deleteSelected(){
@@ -171,12 +173,22 @@ function renderGrid(d){
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
   const n = state.selectedLeads.size;
-  const acts = n > 0
+  const industries = [...new Set(leads.map(l => l.industry).filter(Boolean))].sort();
+  let pre = "";
+  if(industries.length){
+    pre = `<select id="indFilter" class="indsel"><option value="">All industries</option>` +
+      industries.map(i => `<option ${state.industryFilter === i ? "selected" : ""}>${esc(i)}</option>`).join("") +
+      `</select><span class="gtact" data-act="split">Split by industry</span>`;
+  }
+  const acts = pre + (n > 0
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
-    : `<span class="gtact" data-act="clrall">Clear results</span>`;
+    : `<span class="gtact" data-act="clrall">Clear results</span>`);
   gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
   gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; renderGrid(d); });
+  const indSel = gt.querySelector("#indFilter");
+  if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; renderGrid(d); };
   const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
+  wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));
   wire("exp", exportCsv);
@@ -184,12 +196,13 @@ function renderGrid(d){
 
   // apply filter; in "all", surface enriched rows to the top
   let view = state.filter === "all" ? leads.slice() : leads.filter(l => leadCat(l) === state.filter);
+  if(state.industryFilter) view = view.filter(l => (l.industry || "") === state.industryFilter);
   if(state.filter === "all"){
     view.sort((a, b) => (leadCat(a) === "enriched" ? 0 : 1) - (leadCat(b) === "enriched" ? 0 : 1));
   }
   state.viewIds = view.map(l => l.id);
 
-  const cols = ["Email · Reoon", "Title gate", "ICP", ...state.selected.map(pretty)];
+  const cols = ["Email · Reoon", "Title gate", "ICP", "Industry", ...state.selected.map(pretty)];
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
     cols.map(c => `<th>${esc(c)}</th>`).join("") +
     `<th style="color:var(--acc-tx);cursor:pointer">+ enrichment</th>`;
@@ -204,6 +217,7 @@ function renderGrid(d){
     cells += `<td>${emailCell(ld, r)}</td>`;
     cells += `<td>${titleCell(ld, r)}</td>`;
     cells += `<td>${icpCell(ld, r)}</td>`;
+    cells += `<td>${ld.industry ? `<span class="pill p-gray">${esc(ld.industry)}</span>` : `<span class="sk">—</span>`}</td>`;
     state.selected.forEach(k => { cells += `<td>${varCell(ld, r, k)}</td>`; });
     cells += `<td></td>`;
     tr.innerHTML = cells;
@@ -241,6 +255,7 @@ function openDetail(ld){
     `<span class="dclose" id="dClose">✕</span></div>`;
   h += `<div class="drow"><span class="dk">Email</span> ${esc(ld.email || "—")}` +
     (ld.email_status ? ` <span class="reason">(${esc(ld.email_status)})</span>` : "") + `</div>`;
+  h += `<div class="drow"><span class="dk">Industry</span> ${esc(ld.industry || "—")}</div>`;
   if(!keys.length){
     h += `<div class="sk" style="margin-top:12px">Not enriched yet.</div>`;
   } else {
@@ -262,7 +277,7 @@ function updateScope(){
 function updateRunUI(){
   const t = state.view === "table";
   const running = state.running;
-  ["varsBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
+  ["varsBtn", "classifyBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
     const e = $(id); if(e) e.style.display = (t && !running) ? "" : "none";
   });
   const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
@@ -324,6 +339,11 @@ function renderBar(d){
     const tail = (j.status === "done" || j.status === "cancelled")
       ? ` · ${s.enriched||0} enriched · ${s.unsafe||0} unsafe · ${s.rejected||0} title-rejected` : "";
     stat.textContent = `${pre}${j.done} of ${j.total} processed${tail}`;
+  } else if(j.kind === "classify"){
+    cost.textContent = "$" + (j.cost || 0).toFixed(2);
+    const tail = (j.status === "done" || j.status === "cancelled")
+      ? ` · ${s.classified||0} classified · ${s.nosite||0} no website` : "";
+    stat.textContent = `${pre}${j.done} of ${j.total} classified${tail}`;
   } else {
     cost.textContent = "$" + (j.cost || 0).toFixed(2);
     const tail = (j.status === "done" || j.status === "cancelled")
@@ -353,6 +373,8 @@ async function startJob(kind){
   let eligible;
   if(kind === "verify"){
     eligible = candidates.filter(l => !hasVerify(l));
+  } else if(kind === "classify"){
+    eligible = candidates.filter(l => !l.industry);
   } else if(kind === "pipeline"){
     eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
   } else {
@@ -362,6 +384,7 @@ async function startJob(kind){
   let skipDone = true;
   if(eligible.length === 0){
     if(kind === "verify"){ alert("All leads in scope are already verified."); return; }
+    if(kind === "classify"){ alert("All leads in scope are already classified."); return; }
     if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
     skipDone = false;
     eligible = kind === "pipeline" ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
@@ -369,13 +392,13 @@ async function startJob(kind){
   }
   const count = eligible.length;
 
-  const verb = kind === "verify" ? "verify" : (kind === "pipeline" ? "verify + enrich" : "enrich");
-  const credit = kind === "verify" ? "Reoon" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI");
+  const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "pipeline" ? "verify + enrich" : "enrich"));
+  const credit = kind === "verify" ? "Reoon" : (kind === "classify" ? "a little OpenAI" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI"));
   if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
 
-  const ep = kind === "verify" ? "verify" : (kind === "pipeline" ? "run-pipeline" : "run");
+  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "pipeline" ? "run-pipeline" : "run"));
   const body = Object.assign({ skip_done: skipDone }, scope);
-  if(kind !== "verify") body.enrichments = state.selected;
+  if(kind === "enrich" || kind === "pipeline") body.enrichments = state.selected;
   if(kind === "enrich") body.only_safe = onlySafe;
 
   const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
@@ -388,6 +411,7 @@ async function startJob(kind){
 const run = () => startJob("enrich");
 const verify = () => startJob("verify");
 const pipeline = () => startJob("pipeline");
+const classify = () => startJob("classify");
 
 async function stop(){
   if(!state.jobId) return;
@@ -463,9 +487,13 @@ function renderFormat(profile, fmt, sets, idByName){
     h += `<div class="v sk">No profile fields.</div>`;
   }
   h += `</div>`;
-  h += `<div class="fv-h" style="display:flex;align-items:center">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
-    `<button class="run" id="addVarBtn" style="margin-left:auto;padding:6px 11px">+ Add variable</button></div>`;
+  h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
+    (profile.editable
+      ? `<button class="gbtn" id="jsonBtn" style="margin-left:auto;padding:6px 11px">Paste JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
+      : `<button class="run" id="addVarBtn" style="margin-left:auto;padding:6px 11px">+ Add variable</button>`) +
+    `</div>`;
   h += builderHtml();
+  if(profile.editable) h += jsonPanelHtml();
   fmt.variables.forEach(v => {
     const cid = idByName[v.name];
     let acts = "";
@@ -477,7 +505,7 @@ function renderFormat(profile, fmt, sets, idByName){
       acts = `<span class="vact" data-dup="${esc(v.name)}">duplicate</span>`;
       if(!v.always) acts += `<span class="vact" data-hide="${esc(v.name)}" data-on="${v.hidden ? 1 : 0}">${v.hidden ? "unhide" : "hide"}</span>`;
     }
-    h += `<div class="card vcard${v.hidden ? " hidden-var" : ""}"><div class="vh"><span class="vname">${esc(v.label || v.name)}</span>` +
+    h += `<div class="card vcard${v.hidden ? " hidden-var" : ""}"><div class="vh"><span class="vname">${esc(v.label || pretty(v.name))}</span><span class="vslug">${esc(v.name)}</span>` +
       (v.min_words ? `<span class="wr">${v.min_words}-${v.max_words} words</span>` : "") +
       (v.always ? `<span class="tag">always runs</span>` : "") +
       (v.custom ? `<span class="tag" style="background:var(--acc-bg);color:var(--acc-tx)">custom</span>` : "") +
@@ -492,6 +520,9 @@ function renderFormat(profile, fmt, sets, idByName){
   if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
   if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
+  if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };
+  if($("jsonImport")) $("jsonImport").onclick = importJson;
+  if($("jsonCancel")) $("jsonCancel").onclick = () => { $("jsonPanel").hidden = true; };
   $("cvTemplate").oninput = detectPlaceholders;
   $("cvSave").onclick = saveCustom;
   $("cvCancel").onclick = () => { $("builder").hidden = true; resetBuilder(); };
@@ -499,6 +530,31 @@ function renderFormat(profile, fmt, sets, idByName){
   $("formatView").querySelectorAll("[data-dup]").forEach(x => x.onclick = () => duplicateVar(x.dataset.dup));
   $("formatView").querySelectorAll("[data-hide]").forEach(x => x.onclick = () => toggleHide(x.dataset.hide, x.dataset.on !== "1"));
   $("formatView").querySelectorAll("[data-edit]").forEach(x => x.onclick = () => editCustom(parseInt(x.dataset.edit, 10)));
+}
+
+function jsonPanelHtml(){
+  const ph = '{\n  "profile": { "service_brief": "...", "main_offer": "...", "what_we_are_pitching": "...", "target_outcome": "...", "icp_summary": "..." },\n  "variables": [\n    { "label": "Value Proposition", "min_words": 45, "max_words": 80,\n      "guidance": "How to write it...", "template": "We specialize in {{x}} ...",\n      "examples": ["..."], "placeholders": [{ "token": "x", "description": "...", "examples": ["..."] }] }\n  ]\n}';
+  return `<div class="card builder" id="jsonPanel" hidden>
+    <div class="blabel">Paste a JSON config (client profile + variables) — e.g. one ChatGPT built for you</div>
+    <textarea id="jsonText" rows="11" placeholder='${ph.replace(/'/g, "&#39;")}'></textarea>
+    <div class="brow"><button class="run" id="jsonImport">Import JSON</button><button class="gbtn" id="jsonCancel">Cancel</button><span class="savedmsg" id="jsonMsg"></span></div>
+  </div>`;
+}
+
+async function importJson(){
+  let data;
+  try{ data = JSON.parse($("jsonText").value); }
+  catch(e){ const m = $("jsonMsg"); m.textContent = "Invalid JSON — check the format."; m.style.color = "var(--red-tx)"; return; }
+  const body = { profile: data.profile || {}, variables: data.variables || [] };
+  try{
+    const r = await api(`/api/workspaces/${state.variableSet}/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const m = $("jsonMsg"); m.style.color = "var(--green-tx)";
+    m.textContent = `✓ Imported ${r.variables_imported} variable(s)`;
+    await loadEnrichments();
+    setTimeout(loadFormat, 700);
+  }catch(e){ const m = $("jsonMsg"); m.textContent = "Import failed: " + e.message; m.style.color = "var(--red-tx)"; }
 }
 
 function builderHtml(){
@@ -801,6 +857,7 @@ function init(){
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
   $("runBtn").onclick = $("runBtn2").onclick = run;
   $("verifyBtn").onclick = verify;
+  $("classifyBtn").onclick = classify;
   $("pipelineBtn").onclick = pipeline;
   $("exportBtn").onclick = $("exportNav").onclick = exportCsv;
   $("stopBtn").onclick = stop;

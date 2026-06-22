@@ -166,6 +166,9 @@ def _apply_agg(job, agg):
     elif job.kind == "pipeline":
         job.cost = round(agg.get("cost", 0), 4)
         job.summary = {k: agg.get(k, 0) for k in ("verified", "safe", "enriched", "unsafe", "rejected", "cr")}
+    elif job.kind == "classify":
+        job.cost = round(agg.get("cost", 0), 4)
+        job.summary = {"classified": agg.get("classified", 0), "nosite": agg.get("nosite", 0)}
     else:
         job.cost = round(agg.get("cost", 0), 4)
         job.icp = agg.get("icp", 0)
@@ -332,6 +335,25 @@ def _run_verify_job(job_id, target_ids, mode):
     _process_concurrent(job_id, target_ids, partial(_verify_one, mode=mode), VERIFY_WORKERS)
 
 
+def _classify_one(lead_id, tax):
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if not ld:
+            return None
+        label, cost = ea.classify_industry({"website": ld.website, "company": ld.company}, tax)
+        ld.industry = label or ""
+        s.commit()
+        return {"cost": cost, "classified": 1} if label else {"cost": cost, "nosite": 1}
+    finally:
+        s.close()
+
+
+def _run_classify_job(job_id, target_ids):
+    from functools import partial
+    _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()), ENRICH_WORKERS)
+
+
 def _run_pipeline_job(job_id, target_ids, mode):
     from functools import partial
     s = SessionLocal()
@@ -376,6 +398,12 @@ class PipelineBody(BaseModel):
     lead_ids: list[int] = []
     limit: Optional[int] = None
     mode: str = "power"
+    skip_done: bool = True
+
+
+class ClassifyBody(BaseModel):
+    lead_ids: list[int] = []
+    limit: Optional[int] = None
     skip_done: bool = True
 
 
@@ -601,6 +629,49 @@ def _migrate_workspaces_standalone():
         s.close()
 
 
+class ImportJsonBody(BaseModel):
+    profile: dict = {}
+    variables: list[dict] = []
+
+
+@app.post("/api/workspaces/{slug}/import")
+def import_workspace_json(slug: str, body: ImportJsonBody):
+    """Paste a JSON config (e.g. built by ChatGPT) to set the client profile and
+    custom variables for a workspace, instead of building them by hand."""
+    s = SessionLocal()
+    try:
+        w = s.query(Workspace).filter_by(slug=slug).first()
+        if not w:
+            raise HTTPException(404, "Import is only available for your own workspaces, not built-in clients.")
+        if body.profile:
+            merged = dict(w.profile or {})
+            merged.update({k: v for k, v in body.profile.items() if isinstance(v, str)})
+            w.profile = merged
+        added = 0
+        for v in body.variables:
+            if not isinstance(v, dict):
+                continue
+            spec = ea.build_custom_spec(
+                label=v.get("label") or v.get("name") or "Variable",
+                template=v.get("template", "") or "",
+                placeholders=v.get("placeholders", []) or [],
+                min_words=v.get("min_words"), max_words=v.get("max_words"),
+                purpose=v.get("purpose") or v.get("guidance", "") or "",
+                examples=v.get("examples", []) or [],
+            )
+            existing = s.query(CustomVariable).filter_by(variable_set=slug, name=spec["name"]).first()
+            if existing:
+                existing.label = spec["label"]
+                existing.spec = spec
+            else:
+                s.add(CustomVariable(variable_set=slug, name=spec["name"], label=spec["label"], spec=spec))
+            added += 1
+        s.commit()
+        return {"ok": True, "variables_imported": added, "profile_updated": bool(body.profile)}
+    finally:
+        s.close()
+
+
 @app.patch("/api/workspaces/{slug}")
 def update_workspace(slug: str, body: ProfileBody):
     s = SessionLocal()
@@ -808,6 +879,7 @@ def get_list(list_id: int):
                 "title": ld.title, "company": ld.company, "website": ld.website,
                 "email": ld.email, "status": ld.status, "result": ld.result or {},
                 "verify": ld.verify or {}, "email_status": ld.email_status or "",
+                "industry": ld.industry or "",
             } for ld in leads],
             "job": None if not job else {
                 "id": job.id, "kind": job.kind or "enrich", "status": job.status,
@@ -949,6 +1021,67 @@ def status():
     return {"db": backend, "persistent": persistent}
 
 
+@app.get("/api/taxonomy")
+def get_taxonomy():
+    return ea.taxonomy()
+
+
+@app.post("/api/lists/{list_id}/classify")
+def classify_list(list_id: int, body: ClassifyBody):
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if not l:
+            raise HTTPException(404, "List not found")
+        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        if body.lead_ids:
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
+        elif body.limit and body.limit > 0:
+            candidates = q.limit(body.limit).all()
+        else:
+            candidates = q.all()
+        targets = [ld for ld in candidates if not ld.industry] if body.skip_done else candidates
+        job = Job(list_id=list_id, kind="classify", status="queued" if targets else "done",
+                  total=len(targets), variable_set=l.variable_set, summary={})
+        s.add(job)
+        s.commit()
+        job_id = job.id
+        target_ids = [ld.id for ld in targets]
+    finally:
+        s.close()
+    if target_ids:
+        threading.Thread(target=_run_classify_job, args=(job_id, target_ids), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids)}
+
+
+@app.post("/api/lists/{list_id}/split-by-industry")
+def split_by_industry(list_id: int):
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if not l:
+            raise HTTPException(404, "List not found")
+        leads = s.query(Lead).filter_by(list_id=list_id).all()
+        groups = {}
+        for ld in leads:
+            groups.setdefault(ld.industry or "Unclassified", []).append(ld)
+        created = []
+        for ind, items in sorted(groups.items()):
+            nl = LeadList(name=f"{l.name} · {ind}", variable_set=l.variable_set)
+            s.add(nl)
+            s.flush()
+            for ld in items:
+                s.add(Lead(list_id=nl.id, first_name=ld.first_name, last_name=ld.last_name,
+                           title=ld.title, company=ld.company, website=ld.website, email=ld.email,
+                           data=ld.data, result=ld.result, verify=ld.verify,
+                           email_status=ld.email_status, industry=ld.industry, status=ld.status))
+            created.append({"industry": ind, "count": len(items)})
+        s.commit()
+        return {"created": created}
+    finally:
+        s.close()
+
+
 @app.get("/api/reoon/balance")
 def reoon_balance():
     if not reoon.enabled():
@@ -986,12 +1119,13 @@ def export_list(list_id: int, ids: Optional[str] = None):
             for k in (ld.data or {}).keys():
                 if k not in raw_cols:
                     raw_cols.append(k)
-        header = raw_cols + ["email_status", "email_safe_to_send"] + out_keys
+        header = raw_cols + ["industry", "email_status", "email_safe_to_send"] + out_keys
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(header)
         for ld in leads:
             row = [(ld.data or {}).get(c, "") for c in raw_cols]
+            row.append(ld.industry or "")
             row.append(ld.email_status or "")
             row.append((ld.verify or {}).get("is_safe_to_send", ""))
             row += [(ld.result or {}).get(k, "") for k in out_keys]

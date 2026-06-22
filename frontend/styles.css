@@ -88,6 +88,8 @@ input:focus{outline:none;border-color:var(--acc-br);box-shadow:0 0 0 3px var(--a
 .gtact{font-size:12px;color:var(--acc-tx);cursor:pointer;white-space:nowrap}
 .gtact:hover{text-decoration:underline}
 .gtact.del{color:var(--red-tx)}
+.indsel{height:28px;border:1px solid var(--line);border-radius:var(--r);padding:0 8px;font-family:inherit;font-size:12px;background:var(--panel);color:var(--text)}
+.vslug{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--hint);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:0 6px}
 .fchip{font-size:12px;padding:4px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
 .fchip b{font-weight:500;color:var(--text)}
 .fchip.on{background:var(--acc-bg);border-color:var(--acc-br);color:var(--acc-tx)}

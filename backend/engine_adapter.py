@@ -404,6 +404,105 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
     return res, round(0.024 + 0.004 * len(custom_specs), 4)
 
 
+# ------------------------- industry classification -------------------------
+
+# Fixed umbrella taxonomy so segmentation is clean (one bucket per category,
+# no near-duplicates). Override with the INDUSTRY_TAXONOMY env (comma-separated).
+DEFAULT_TAXONOMY = [
+    "Marketing & Advertising", "Creative & Branding Agency", "SaaS & Software",
+    "IT Services & Consulting", "Cybersecurity", "Fintech & Financial Services",
+    "Healthcare & Life Sciences", "Manufacturing & Industrial",
+    "E-commerce & Retail", "Real Estate & Property", "Construction",
+    "Logistics & Supply Chain", "Education & EdTech",
+    "Professional Services (Legal/Accounting/HR)", "Staffing & Recruiting",
+    "Media & Entertainment", "Energy & Utilities", "Telecommunications",
+    "Hospitality & Travel", "Automotive & Transportation",
+    "Nonprofit & Government", "Other / Unclear",
+]
+
+
+def taxonomy():
+    env = os.getenv("INDUSTRY_TAXONOMY", "").strip()
+    if env:
+        items = [x.strip() for x in env.split(",") if x.strip()]
+        if items:
+            return items
+    return list(DEFAULT_TAXONOMY)
+
+
+def _snap_taxonomy(label, tax):
+    """Map a model answer to the closest taxonomy bucket."""
+    l = (label or "").strip().lower()
+    if not l:
+        return "Other / Unclear"
+    for t in tax:
+        if l == t.lower():
+            return t
+    for t in tax:
+        tl = t.lower()
+        if l in tl or tl in l or l.split(" ")[0] in tl:
+            return t
+    return "Other / Unclear"
+
+
+def classify_industry(lead, tax=None):
+    """Return (industry_label, est_cost). Switches on ENRICH_MODE."""
+    tax = tax or taxonomy()
+    if os.getenv("ENRICH_MODE", "demo").lower() == "real":
+        return _classify_real(lead, tax)
+    return _classify_demo(lead, tax)
+
+
+def _classify_demo(lead, tax):
+    text = ((lead.get("website") or "") + " " + (lead.get("company") or "")).lower()
+    cues = [
+        ("cyber|security|infosec", "Cybersecurity"), ("saas|software|app|platform", "SaaS & Software"),
+        ("market|advertis|seo|media|ads", "Marketing & Advertising"), ("health|medical|clinic|care|pharma", "Healthcare & Life Sciences"),
+        ("bank|fintech|capital|invest|financ", "Fintech & Financial Services"), ("staff|recruit|talent", "Staffing & Recruiting"),
+        ("real estate|property|realty", "Real Estate & Property"), ("construct|building", "Construction"),
+        ("logistic|freight|supply|shipping", "Logistics & Supply Chain"), ("manufactur|industrial|factory", "Manufacturing & Industrial"),
+        ("shop|store|ecom|retail", "E-commerce & Retail"), ("it |consult|managed service", "IT Services & Consulting"),
+    ]
+    for pat, ind in cues:
+        if re.search(pat, text) and ind in tax:
+            return ind, 0.0
+    h = int(hashlib.md5(text.encode()).hexdigest(), 16)
+    return tax[h % len(tax)], 0.0
+
+
+def _classify_real(lead, tax):
+    import sys
+    if ENGINE_DIR not in sys.path:
+        sys.path.insert(0, ENGINE_DIR)
+    try:
+        import run as engine
+        from openai import OpenAI
+    except Exception:
+        return "", 0.0
+    url = engine.normalize_url(lead.get("website") or "")
+    if not url:
+        return "", 0.0
+    scraped = engine.scrape_company(url, max_pages=1, use_cache=True)  # homepage only = cheap
+    content = scraped.get("content", "")
+    if not content:
+        return "", 0.0  # no website -> no industry (never guess)
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        listing = "\n".join(f"- {t}" for t in tax)
+        resp = client.chat.completions.create(
+            model=os.getenv("CLASSIFY_MODEL", "gpt-4o-mini"),
+            max_completion_tokens=20,
+            messages=[
+                {"role": "system", "content": "You classify a company's primary industry from a fixed list. Reply with ONLY the exact industry name from the list, nothing else."},
+                {"role": "user", "content": f"Pick the single best industry for this company from this list:\n{listing}\n\nReply with only one industry name from the list, copied exactly. Use website facts only.\n\nWEBSITE CONTENT:\n{content[:4000]}"},
+            ],
+        )
+        label = (resp.choices[0].message.content or "").strip()
+        return _snap_taxonomy(label, tax), 0.0004
+    except Exception:
+        return "", 0.0
+
+
 def load_variable_set(name):
     """Full variable-set JSON from the engine, or {}."""
     try:
