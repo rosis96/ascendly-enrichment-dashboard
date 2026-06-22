@@ -82,7 +82,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 input,#listName{height:34px;border:1px solid var(--line);border-radius:var(--r);padding:0 11px;font-family:inherit;font-size:12.5px;background:var(--panel);color:var(--text)}
 input:focus{outline:none;border-color:var(--acc-br);box-shadow:0 0 0 3px var(--acc-bg)}
 
-.gridtools{display:flex;gap:7px;flex-wrap:wrap;padding:9px 14px 0}
+.gridtools{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 14px 0}
+.fchips{display:flex;gap:7px;flex-wrap:wrap}
+.gtacts{display:flex;gap:14px;flex:none}
+.gtact{font-size:12px;color:var(--acc-tx);cursor:pointer;white-space:nowrap}
+.gtact:hover{text-decoration:underline}
+.gtact.del{color:var(--red-tx)}
 .fchip{font-size:12px;padding:4px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
 .fchip b{font-weight:500;color:var(--text)}
 .fchip.on{background:var(--acc-bg);border-color:var(--acc-br);color:var(--acc-tx)}

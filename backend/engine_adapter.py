@@ -404,6 +404,15 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
     return res, round(0.024 + 0.004 * len(custom_specs), 4)
 
 
+def load_variable_set(name):
+    """Full variable-set JSON from the engine, or {}."""
+    try:
+        with open(os.path.join(VAR_DIR, f"{name}.json"), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
 def load_client_profile(name):
     """Full client profile JSON from the engine, or {}."""
     try:

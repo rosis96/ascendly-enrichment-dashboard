@@ -1,5 +1,5 @@
 const API = "";
-const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■" };
+const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦" };
 const VBUCKET = { valid: "p-green", risky: "p-amber", invalid: "p-red" };
 const LABELS = {
   personalized_first_line: "First line", company_category: "Category",
@@ -74,6 +74,29 @@ async function loadLists(){
   });
 }
 
+async function deleteSelected(){
+  const ids = [...state.selectedLeads];
+  if(!ids.length) return;
+  if(!confirm(`Delete ${ids.length} lead${ids.length > 1 ? "s" : ""}? This can't be undone.`)) return;
+  await api(`/api/lists/${state.listId}/leads?ids=${ids.join(",")}`, { method: "DELETE" });
+  state.selectedLeads.clear();
+  await refresh();
+  loadLists();
+}
+
+async function clearResults(ids){
+  const all = !ids || !ids.length;
+  if(!confirm(all
+      ? "Clear ALL enrichment results in this list? (Verification is kept.)"
+      : `Clear enrichment for ${ids.length} selected lead${ids.length > 1 ? "s" : ""}?`)) return;
+  await api(`/api/lists/${state.listId}/clear`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lead_ids: ids || [] }),
+  });
+  state.selectedLeads.clear();
+  await refresh();
+}
+
 async function deleteList(id, name){
   if(!confirm(`Delete list "${name}" and all its leads? This can't be undone.`)) return;
   try{
@@ -145,9 +168,19 @@ function renderGrid(d){
   gt.hidden = leads.length === 0;
   const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
     ["rejected", "Title-rejected"], ["error", "No website"], ["notrun", "Not run"]];
-  gt.innerHTML = chips.map(([k, label]) =>
+  const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
+  const n = state.selectedLeads.size;
+  const acts = n > 0
+    ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
+    : `<span class="gtact" data-act="clrall">Clear results</span>`;
+  gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
   gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; renderGrid(d); });
+  const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
+  wire("del", deleteSelected);
+  wire("clr", () => clearResults([...state.selectedLeads]));
+  wire("exp", exportCsv);
+  wire("clrall", () => clearResults([]));
 
   // apply filter; in "all", surface enriched rows to the top
   let view = state.filter === "all" ? leads.slice() : leads.filter(l => leadCat(l) === state.filter);
@@ -229,7 +262,7 @@ function updateScope(){
 function updateRunUI(){
   const t = state.view === "table";
   const running = state.running;
-  ["runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
+  ["varsBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
     const e = $(id); if(e) e.style.display = (t && !running) ? "" : "none";
   });
   const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
@@ -762,7 +795,7 @@ function init(){
     if(f && !$("listName").value) $("listName").value = f.name.replace(/\.csv$/i, "");
   };
   $("createBtn").onclick = createList;
-  $("enrichBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
+  $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
   $("formatBtn").onclick = loadFormat;
   $("settingsBtn").onclick = loadSettings;
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
