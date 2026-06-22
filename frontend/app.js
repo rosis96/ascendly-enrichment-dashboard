@@ -752,6 +752,7 @@ async function openNewWorkspace(){
   $("viewTitle").textContent = "New workspace";
   $("viewSub").textContent = "Create a client workspace";
   const engineSets = await api("/api/engine-sets");
+  const ph = '{\n  "profile": { "service_brief": "...", "main_offer": "...", "what_we_are_pitching": "...", "target_outcome": "...", "icp_summary": "..." },\n  "variables": [\n    { "label": "Value Proposition", "min_words": 45, "max_words": 80, "guidance": "How to write it...",\n      "template": "We help {{industry}} ...", "examples": ["..."], "placeholders": [{ "token": "industry", "examples": ["agencies"] }] }\n  ]\n}';
   $("formatView").innerHTML =
     `<div class="fv-h">New workspace</div><div class="card builder">` +
     `<input id="wsNewName" placeholder="Client / workspace name   e.g. Acme Co" />` +
@@ -759,8 +760,10 @@ async function openNewWorkspace(){
     `<option value="">Blank (build variables yourself)</option>` +
     engineSets.map(s => `<option value="${esc(s)}">Clone: ${esc(s)}</option>`).join("") +
     `</select></div>` +
+    `<div class="blabel">Or paste a JSON config <span class="sk">(optional — sets the client profile + all variables at once, e.g. one ChatGPT built)</span></div>` +
+    `<textarea id="wsNewJson" rows="9" placeholder='${ph.replace(/'/g, "&#39;")}'></textarea>` +
     `<div class="brow"><button class="run" id="wsCreate">Create workspace</button>` +
-    `<button class="gbtn" id="wsCancelNew">Cancel</button></div></div>`;
+    `<button class="gbtn" id="wsCancelNew">Cancel</button><span class="savedmsg" id="wsNewMsg"></span></div></div>`;
   $("wsCreate").onclick = createWorkspace;
   $("wsCancelNew").onclick = () => loadFormat();
 }
@@ -768,10 +771,24 @@ async function openNewWorkspace(){
 async function createWorkspace(){
   const name = $("wsNewName").value.trim();
   if(!name){ alert("Name the workspace first."); return; }
+  const jsonText = ($("wsNewJson").value || "").trim();
+  let jsonData = null;
+  if(jsonText){
+    try{ jsonData = JSON.parse(jsonText); }
+    catch(e){ const m = $("wsNewMsg"); m.textContent = "Invalid JSON — check the format."; m.style.color = "var(--red-tx)"; return; }
+  }
+  // if JSON is pasted it defines everything, so create blank then import; otherwise use the chosen base
+  const base = jsonData ? "" : $("wsNewBase").value;
   const r = await api("/api/workspaces", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, base_set: $("wsNewBase").value }),
+    body: JSON.stringify({ name, base_set: base }),
   });
+  if(jsonData){
+    await api(`/api/workspaces/${r.key}/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: jsonData.profile || {}, variables: jsonData.variables || [] }),
+    });
+  }
   await setWorkspace(r.key, r.name);
   loadFormat();
 }
