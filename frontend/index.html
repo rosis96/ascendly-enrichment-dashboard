@@ -6,18 +6,32 @@
 <title>Ascendly · Lead Enrichment</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body>
 <div id="app">
-  <aside class="side" id="side">
-    <div class="ws" id="wsBtn">
-      <span class="dot" id="wsDot">A</span>
-      <span class="lbl ws-name" id="wsName">Ascendly</span>
-      <span class="col" id="collapseBtn" title="Collapse"><i data-i="collapse"></i></span>
+  <header class="appbar">
+    <button class="hamb" id="collapseBtn" title="Collapse menu"><i data-i="collapse"></i></button>
+    <div class="brand" id="wsBtn" title="Switch workspace">
+      <span class="brand-dot" id="wsDot">A</span>
+      <span class="brand-name" id="wsName">Ascendly</span>
+      <span class="brand-caret">▾</span>
     </div>
     <div class="wsmenu" id="wsMenu" hidden></div>
+    <nav class="appnav">
+      <a class="on">Workspace</a>
+      <a>Activity</a>
+      <a>Usage</a>
+      <a>Docs</a>
+    </nav>
+    <div class="appbar-right">
+      <span class="askg">✦ Lead Enrichment</span>
+      <span class="abav">RS</span>
+    </div>
+  </header>
+  <div class="appbody">
+  <aside class="side" id="side">
 
     <div class="navgroup">
       <div class="navh">Lists</div>
@@ -104,6 +118,7 @@
       <button class="run" id="runBtn2"><i data-i="play"></i> Run enrichment</button>
     </div>
   </main>
+  </div>
 </div>
 <div id="detail" class="drawer" hidden></div>
 <script src="/assets/app.js"></script>

@@ -220,8 +220,11 @@ function renderGrid(d){
     const tr = document.createElement("tr");
     const ck = state.selectedLeads.has(ld.id) ? "checked" : "";
     let cells = `<td class="cbx"><input type="checkbox" class="rowcb" data-id="${ld.id}" ${ck}></td>`;
-    cells += `<td class="lead leadcell" data-id="${ld.id}"><b>${esc(ld.first_name)} ${esc(ld.last_name)}</b>` +
-      `<s>${esc(ld.company)}${ld.title ? " · " + esc(ld.title) : ""}</s></td>`;
+    const ini = (((ld.first_name || "")[0] || "") + ((ld.last_name || "")[0] || "")).toUpperCase()
+      || ((ld.company || "?")[0] || "?").toUpperCase();
+    cells += `<td class="lead leadcell" data-id="${ld.id}"><div class="leadrow"><span class="avatar">${esc(ini)}</span>` +
+      `<div class="leadtext"><b>${esc(ld.first_name)} ${esc(ld.last_name)}</b>` +
+      `<s>${esc(ld.company)}${ld.title ? " · " + esc(ld.title) : ""}</s></div></div></td>`;
     cells += `<td>${emailCell(ld, r)}</td>`;
     cells += `<td>${titleCell(ld, r)}</td>`;
     cells += `<td>${icpCell(ld, r)}</td>`;
