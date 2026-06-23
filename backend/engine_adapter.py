@@ -431,18 +431,31 @@ def taxonomy():
 
 
 def _snap_taxonomy(label, tax):
-    """Map a model answer to the closest taxonomy bucket."""
+    """Map a model answer to the closest taxonomy bucket. The model is told to
+    reply with an exact name; this is a safety net for off-list answers."""
     l = (label or "").strip().lower()
     if not l:
         return "Other / Unclear"
-    for t in tax:
+    for t in tax:                      # exact match
         if l == t.lower():
             return t
-    for t in tax:
+    for t in tax:                      # one fully contains the other
         tl = t.lower()
-        if l in tl or tl in l or l.split(" ")[0] in tl:
+        if l in tl or tl in l:
             return t
-    return "Other / Unclear"
+    # significant-word overlap (>=4 chars; substring match handles compounds
+    # like 'cyber security' -> 'Cybersecurity')
+    lwords = {w for w in re.findall(r"[a-z]+", l) if len(w) >= 4}
+    best, best_n = None, 0
+    for t in tax:
+        twords = re.findall(r"[a-z]+", t.lower())
+        n = 0
+        for lw in lwords:
+            if any(lw == tw or (len(lw) >= 5 and lw in tw) or (len(tw) >= 5 and tw in lw) for tw in twords):
+                n += 1
+        if n > best_n:
+            best, best_n = t, n
+    return best if best_n > 0 else "Other / Unclear"
 
 
 def classify_industry(lead, tax=None):
