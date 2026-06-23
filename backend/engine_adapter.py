@@ -500,7 +500,7 @@ def _classify_real(lead, tax):
     if not content:
         return "", 0.0  # no website -> no industry (never guess)
     try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=6, timeout=60.0)
         listing = "\n".join(f"- {t}" for t in tax)
         resp = client.chat.completions.create(
             model=os.getenv("CLASSIFY_MODEL", "gpt-4o-mini"),
@@ -611,7 +611,9 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
     row["website"] = lead.get("website") or lead.get("Website") or ""
 
     try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # max_retries gives exponential backoff on 429/rate limits so quality stays
+        # consistent under concurrency instead of later leads failing/degrading.
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=6, timeout=90.0)
         result = engine.process_row(client, profile or {}, vs, row, "website", max_pages=3, use_cache=True)
     except Exception as exc:
         return ({"_status": "error", "_error": f"{type(exc).__name__}: {exc}"[:300]}, 0.0)

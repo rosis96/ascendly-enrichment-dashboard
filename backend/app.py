@@ -215,8 +215,7 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
                 if r:
                     for k, v in r.items():
                         agg[k] = agg.get(k, 0) + v
-                if done % 5 == 0:
-                    _write_job(job_id, done, agg)
+                _write_job(job_id, done, agg)  # live progress on every lead
         _write_job(job_id, done, agg, status="cancelled" if job_id in CANCEL else "done")
     except Exception:
         _write_job(job_id, done, agg, status="error")
@@ -609,6 +608,21 @@ def create_workspace(body: WorkspaceBody):
         if body.base_set:
             _materialize_workspace(s, slug, body.base_set)
         return {"key": w.slug, "name": w.name, "base_set": "", "kind": "workspace"}
+    finally:
+        s.close()
+
+
+@app.on_event("startup")
+def _cleanup_stale_jobs():
+    """A restart/redeploy kills in-flight worker threads. Mark any job still
+    'running' as cancelled so the UI never shows a stuck, unstoppable run."""
+    s = SessionLocal()
+    try:
+        s.query(Job).filter(Job.status.in_(["running", "queued", "cancelling"])).update(
+            {Job.status: "cancelled"}, synchronize_session=False)
+        s.commit()
+    except Exception:
+        pass
     finally:
         s.close()
 
@@ -1201,12 +1215,14 @@ def export_list(list_id: int, ids: Optional[str] = None):
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: int):
-    CANCEL.add(job_id)
+    CANCEL.add(job_id)  # live workers see this and stop
     s = SessionLocal()
     try:
         job = s.get(Job, job_id)
-        if job and job.status in ("queued", "running"):
-            job.status = "cancelling"
+        if job and job.status in ("queued", "running", "cancelling"):
+            # set cancelled immediately so the UI clears even if the worker
+            # already died (e.g. the app slept) and can't update it itself
+            job.status = "cancelled"
             s.commit()
     finally:
         s.close()

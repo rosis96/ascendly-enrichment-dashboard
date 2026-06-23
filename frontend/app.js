@@ -432,7 +432,7 @@ async function loadBalance(){
     const el = $("credits");
     if(!b.enabled) el.textContent = "Reoon: demo";
     else if(b.error) el.textContent = "Reoon: key error";
-    else el.textContent = `Reoon: ${b.instant ?? 0} credits`;
+    else el.textContent = `Reoon: ${b.daily ?? 0} free + ${b.instant ?? 0} paid`;
   }catch(e){}
 }
 
@@ -693,7 +693,7 @@ async function loadSettings(){
   let b = {}; try{ b = await api("/api/reoon/balance"); }catch(e){}
   let st = {}; try{ st = await api("/api/status"); }catch(e){}
   const reoon = !b.enabled ? "Demo mode (no REOON_API_KEY set)"
-    : (b.error ? "Key set, but balance check failed" : `Connected · ${b.instant ?? 0} instant credits`);
+    : (b.error ? "Key set, but balance check failed" : `Connected · ${b.daily ?? 0} free daily + ${b.instant ?? 0} instant (paid) credits`);
   const storage = st.db ? `${st.db}${st.persistent ? " · persists across deploys" : " · resets on each deploy ⚠️"}` : "unknown";
   const def = localStorage.getItem("defLimit") || "10";
   $("settingsView").innerHTML =
