@@ -594,12 +594,49 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
         "unless those exact numbers appear in the scraped website content.",
         "If the website has little or no usable scraped content, do not fabricate copy.",
     ]
+    # ROLE LOCK: there are two companies in every email. The SENDER is the client
+    # whose offer lives in the profile; the PROSPECT is the scraped website. The
+    # model keeps confusing the two and pitches the prospect's OWN service back to
+    # them (e.g. "We specialize in road pricing solutions by running road pricing
+    # systems"). These rules pin down whose data goes in which slot. Client-agnostic.
+    prof = profile or {}
+    sender_name = (prof.get("client_name") or prof.get("name") or "the sender").strip() or "the sender"
+    sender_offer = (prof.get("what_we_are_pitching") or prof.get("main_offer")
+                    or prof.get("service_brief") or prof.get("target_outcome") or "").strip()
+    role_lock = [
+        "ROLE LOCK (the single most important rule): every email involves TWO companies. "
+        f"The SENDER is OUR client, '{sender_name}', whose offer is described in the profile above. "
+        "The PROSPECT is the company on the scraped website. You are writing outreach FROM the sender "
+        "TO the prospect. (The sender changes per run - always use whoever the profile above describes, "
+        "never a hard-coded company.)",
+        "The ONLY service being sold is the SENDER's offer from the profile above. NEVER describe, pitch, "
+        "sell, or summarize the PROSPECT's own service, product, method, or deliverable as if the sender "
+        "provides it. The sender does NOT do the prospect's job. The sender helps the prospect get more "
+        "clients, meetings, and revenue.",
+    ]
+    if sender_offer:
+        role_lock.append(f"The SENDER's offer (this is what '{sender_name}' sells, and the ONLY thing you "
+                         "pitch in every line): " + sender_offer)
+    role_lock += [
+        "value_proposition slot map: revenue_function, ascendly_mechanism and ascendly_solution are "
+        "SENDER slots - they describe ONLY the sender's offer from the profile (the growth/lead/client "
+        "outcome and how the sender delivers it), regardless of how those slots are named. The PROSPECT "
+        "appears ONLY in company_category, personalized_observation and company_name. So in "
+        "'We specialize in <X> for <prospect category>, by <Y>', X and Y are ALWAYS the sender's "
+        "service from the profile, NEVER the prospect's service.",
+        "Error to avoid (real failures): if the prospect sells road pricing, accounting, wealth "
+        "management, masonry, or office automation, the line must be about the sender getting THEM more "
+        "clients - NEVER about the sender doing road pricing / accounting / wealth management / masonry.",
+        "Final check before returning: does sentence 1 describe the SENDER's service from the profile "
+        "(bringing the prospect clients, meetings, pipeline), and not the prospect's own service? If it "
+        "describes the prospect's service, REWRITE it before returning.",
+    ]
     vs = {
         "variable_set_name": "dashboard",
         "max_tokens": base_spec.get("max_tokens", 2200),
         "temperature": base_spec.get("temperature", 0.7),
         "output_keys": [v["name"] for v in variables],
-        "global_output_rules": base_rules + website_rules,
+        "global_output_rules": base_rules + website_rules + role_lock,
         "variables": variables,
     }
     if base_spec.get("icp_definition"):

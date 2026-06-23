@@ -180,7 +180,10 @@ function renderGrid(d){
       industries.map(i => `<option ${state.industryFilter === i ? "selected" : ""}>${esc(i)}</option>`).join("") +
       `</select><span class="gtact" data-act="split">Split by industry</span>`;
   }
-  const acts = pre + (n > 0
+  const notrunIds = leads.filter(l => leadCat(l) === "notrun").map(l => l.id);
+  const selNr = notrunIds.length
+    ? `<span class="gtact" data-act="selnr">Select not-run ${notrunIds.length}</span>` : "";
+  const acts = pre + selNr + (n > 0
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
     : `<span class="gtact" data-act="clrall">Clear results</span>`);
   gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
@@ -188,6 +191,11 @@ function renderGrid(d){
   const indSel = gt.querySelector("#indFilter");
   if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; renderGrid(d); };
   const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
+  wire("selnr", () => {
+    notrunIds.forEach(id => state.selectedLeads.add(id));
+    state.filter = "notrun";
+    renderGrid(d); updateScope();
+  });
   wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));

@@ -55,7 +55,11 @@ def _profile_for(s, key, base):
     engine client's full profile file."""
     ws = s.query(Workspace).filter_by(slug=key).first()
     if ws:
-        return dict(ws.profile or {})
+        prof = dict(ws.profile or {})
+        # The role-lock needs the active client's name. Workspace profiles don't
+        # store one, so surface the workspace name as the client/sender identity.
+        prof.setdefault("client_name", ws.name)
+        return prof
     client = (base or key).split("_")[0]
     return ea.load_client_profile(client)
 
