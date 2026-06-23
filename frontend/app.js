@@ -28,6 +28,7 @@ function icons(){ document.querySelectorAll("[data-i]").forEach(e => e.textConte
 
 async function api(path, opts){
   const r = await fetch(API + path, opts);
+  if(r.status === 401){ window.location = "/login"; throw new Error("auth required"); }
   if(!r.ok) throw new Error(await r.text());
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
 }

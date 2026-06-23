@@ -101,7 +101,9 @@ async def auth_gate(request, call_next):
     pw = os.getenv("DASH_PASSWORD")
     if pw:
         path = request.url.path
-        open_paths = (path == "/login" or path == "/api/login" or path == "/api/logout"
+        # "/" serves the SPA shell to everyone (returns 200 so platform health
+        # checks pass); its data calls 401 and the frontend redirects to /login.
+        open_paths = (path in ("/", "/login", "/healthz", "/api/login", "/api/logout")
                       or path.startswith("/assets"))
         if not open_paths:
             tok = request.cookies.get(SESSION_COOKIE, "")
@@ -1330,6 +1332,11 @@ def get_job(job_id: int):
 class LoginBody(BaseModel):
     password: str = ""
     user: str = ""
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
 
 @app.get("/login")
