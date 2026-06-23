@@ -408,6 +408,8 @@ async function startJob(kind){
   const body = Object.assign({ skip_done: skipDone }, scope);
   if(kind === "enrich" || kind === "pipeline") body.enrichments = state.selected;
   if(kind === "enrich") body.only_safe = onlySafe;
+  const w = parseInt(($("workersN") || {}).value, 10);
+  if(w > 0) body.workers = w;
 
   const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
     method: "POST", headers: { "Content-Type": "application/json" },

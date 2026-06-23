@@ -154,6 +154,17 @@ def _parse_csv(content_bytes):
 
 ENRICH_WORKERS = int(os.getenv("ENRICH_WORKERS", "10"))
 VERIFY_WORKERS = int(os.getenv("VERIFY_WORKERS", "10"))
+# Upper bound on user-chosen concurrency, so a huge number can't hammer OpenAI/Reoon
+# rate limits (which is what degraded quality before). Raise via env if needed.
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "20"))
+
+
+def _clamp_workers(n, default):
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, MAX_WORKERS))
 
 
 def _lead_row(ld):
@@ -329,7 +340,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
         s.close()
 
 
-def _run_job(job_id, target_ids):
+def _run_job(job_id, target_ids, workers=None):
     from functools import partial
     s = SessionLocal()
     try:
@@ -344,12 +355,13 @@ def _run_job(job_id, target_ids):
     _process_concurrent(job_id, target_ids,
                         partial(_enrich_one, base=base, enrichments=enrichments,
                                 custom_specs=custom_specs, profile=profile, variable_set=vset),
-                        ENRICH_WORKERS)
+                        _clamp_workers(workers, ENRICH_WORKERS))
 
 
-def _run_verify_job(job_id, target_ids, mode):
+def _run_verify_job(job_id, target_ids, mode, workers=None):
     from functools import partial
-    _process_concurrent(job_id, target_ids, partial(_verify_one, mode=mode), VERIFY_WORKERS)
+    _process_concurrent(job_id, target_ids, partial(_verify_one, mode=mode),
+                        _clamp_workers(workers, VERIFY_WORKERS))
 
 
 def _classify_one(lead_id, tax):
@@ -366,12 +378,13 @@ def _classify_one(lead_id, tax):
         s.close()
 
 
-def _run_classify_job(job_id, target_ids):
+def _run_classify_job(job_id, target_ids, workers=None):
     from functools import partial
-    _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()), ENRICH_WORKERS)
+    _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()),
+                        _clamp_workers(workers, ENRICH_WORKERS))
 
 
-def _run_pipeline_job(job_id, target_ids, mode):
+def _run_pipeline_job(job_id, target_ids, mode, workers=None):
     from functools import partial
     s = SessionLocal()
     try:
@@ -386,7 +399,7 @@ def _run_pipeline_job(job_id, target_ids, mode):
     _process_concurrent(job_id, target_ids,
                         partial(_pipeline_one, mode=mode, base=base, enrichments=enrichments,
                                 custom_specs=custom_specs, profile=profile, variable_set=vset),
-                        ENRICH_WORKERS)
+                        _clamp_workers(workers, ENRICH_WORKERS))
 
 
 # ------------------------- API -------------------------
@@ -402,6 +415,7 @@ class RunBody(BaseModel):
     limit: Optional[int] = None  # otherwise run only the first N (test cap)
     only_safe: bool = True       # only enrich leads Reoon marked safe/deliverable
     skip_done: bool = True        # resume: skip leads already enriched
+    workers: Optional[int] = None  # parallel rows at once (clamped to MAX_WORKERS)
 
 
 class VerifyBody(BaseModel):
@@ -409,6 +423,7 @@ class VerifyBody(BaseModel):
     limit: Optional[int] = None
     mode: str = "power"          # reoon mode: power (accurate) or quick (fast)
     skip_done: bool = True        # resume: skip leads already verified
+    workers: Optional[int] = None
 
 
 class PipelineBody(BaseModel):
@@ -417,12 +432,14 @@ class PipelineBody(BaseModel):
     limit: Optional[int] = None
     mode: str = "power"
     skip_done: bool = True
+    workers: Optional[int] = None
 
 
 class ClassifyBody(BaseModel):
     lead_ids: list[int] = []
     limit: Optional[int] = None
     skip_done: bool = True
+    workers: Optional[int] = None
 
 
 @app.get("/api/variable-sets")
@@ -1022,7 +1039,7 @@ def run_list(list_id: int, body: RunBody):
     finally:
         s.close()
     if target_ids:
-        threading.Thread(target=_run_job, args=(job_id, target_ids), daemon=True).start()
+        threading.Thread(target=_run_job, args=(job_id, target_ids, body.workers), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids),
             "skipped_unsafe": skipped_unsafe, "skipped_done": skipped_done}
 
@@ -1058,7 +1075,7 @@ def verify_list(list_id: int, body: VerifyBody):
     finally:
         s.close()
     if target_ids:
-        threading.Thread(target=_run_verify_job, args=(job_id, target_ids, body.mode), daemon=True).start()
+        threading.Thread(target=_run_verify_job, args=(job_id, target_ids, body.mode, body.workers), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids), "skipped_done": skipped_done}
 
 
@@ -1098,7 +1115,7 @@ def run_pipeline(list_id: int, body: PipelineBody):
     finally:
         s.close()
     if target_ids:
-        threading.Thread(target=_run_pipeline_job, args=(job_id, target_ids, body.mode), daemon=True).start()
+        threading.Thread(target=_run_pipeline_job, args=(job_id, target_ids, body.mode, body.workers), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids)}
 
 
@@ -1177,7 +1194,7 @@ def classify_list(list_id: int, body: ClassifyBody):
     finally:
         s.close()
     if target_ids:
-        threading.Thread(target=_run_classify_job, args=(job_id, target_ids), daemon=True).start()
+        threading.Thread(target=_run_classify_job, args=(job_id, target_ids, body.workers), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids)}
 
 

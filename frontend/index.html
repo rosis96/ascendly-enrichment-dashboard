@@ -56,6 +56,7 @@
         <label class="onlysafe" title="Only enrich emails Reoon marked safe"><input type="checkbox" id="onlySafe" checked /> Only Safe</label>
         <span class="selinfo" id="selInfo" hidden></span>
         <label class="lim" id="limWrap">Test first <input id="limitN" type="number" min="1" value="10" /> leads</label>
+        <label class="lim" id="workersWrap" title="How many rows to process in parallel (max 20). Higher = faster but more API load.">Workers <input id="workersN" type="number" min="1" max="20" value="10" /></label>
       </div>
       <button class="gbtn" id="varsBtn"><i data-i="cols"></i> Variables</button>
       <button class="gbtn" id="importBtn"><i data-i="up"></i> Import</button>
