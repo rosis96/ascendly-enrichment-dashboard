@@ -629,6 +629,68 @@ def _migrate_workspaces_standalone():
         s.close()
 
 
+def _to_export_var(spec):
+    """A spec -> the editable import schema (round-trips through Paste JSON)."""
+    out = {"label": spec.get("label") or (spec.get("name", "").replace("_", " ").title())}
+    if spec.get("min_words"):
+        out["min_words"] = spec["min_words"]
+    if spec.get("max_words"):
+        out["max_words"] = spec["max_words"]
+    guidance = spec.get("purpose") or spec.get("definition") or ""
+    extra = []
+    for k in ("instructions", "writing_rules", "hard_requirements"):
+        val = spec.get(k)
+        if isinstance(val, list):
+            extra += [str(x) for x in val if isinstance(x, str)]
+    if extra and not spec.get("template"):
+        guidance = (guidance + " " if guidance else "") + " ".join(extra)
+    if guidance:
+        out["guidance"] = guidance
+    if spec.get("template"):
+        out["template"] = spec["template"]
+    if spec.get("example_outputs"):
+        out["examples"] = spec["example_outputs"]
+    ph = spec.get("placeholders") or {}
+    if ph:
+        plist = []
+        for tok, p in ph.items():
+            item = {"token": tok}
+            for k in ("description", "min_words", "max_words", "examples"):
+                if p.get(k):
+                    item[k] = p[k]
+            plist.append(item)
+        out["placeholders"] = plist
+    return out
+
+
+@app.get("/api/format-json/{variable_set}")
+def export_format_json(variable_set: str):
+    """Download a workspace's full config (profile + all variables) as JSON in the
+    same shape Paste JSON accepts — so you can copy, edit the context, and reuse."""
+    s = SessionLocal()
+    try:
+        ws = s.query(Workspace).filter_by(slug=variable_set).first()
+        if ws:
+            profile = dict(ws.profile or {})
+        else:
+            profile = ea.get_profile_raw((variable_set or "").split("_")[0])
+        base = _base_of(s, variable_set)
+        customs = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
+        custom_names = {c.name for c in customs}
+        variables = []
+        base_spec = ea.load_variable_set(base) if base else {}
+        for v in base_spec.get("variables", []):
+            name = v.get("name")
+            if not name or name in ea.ALWAYS_KEYS or name in custom_names:
+                continue
+            variables.append(_to_export_var(v))
+        for c in customs:
+            variables.append(_to_export_var(c.spec))
+        return {"profile": profile, "variables": variables}
+    finally:
+        s.close()
+
+
 class ImportJsonBody(BaseModel):
     profile: dict = {}
     variables: list[dict] = []

@@ -489,8 +489,8 @@ function renderFormat(profile, fmt, sets, idByName){
   h += `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
-      ? `<button class="gbtn" id="jsonBtn" style="margin-left:auto;padding:6px 11px">Paste JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
-      : `<button class="run" id="addVarBtn" style="margin-left:auto;padding:6px 11px">+ Add variable</button>`) +
+      ? `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
+      : `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`) +
     `</div>`;
   h += builderHtml();
   if(profile.editable) h += jsonPanelHtml();
@@ -520,6 +520,7 @@ function renderFormat(profile, fmt, sets, idByName){
   if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
   if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
+  if($("dlJsonBtn")) $("dlJsonBtn").onclick = downloadJson;
   if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };
   if($("jsonImport")) $("jsonImport").onclick = importJson;
   if($("jsonCancel")) $("jsonCancel").onclick = () => { $("jsonPanel").hidden = true; };
@@ -539,6 +540,16 @@ function jsonPanelHtml(){
     <textarea id="jsonText" rows="11" placeholder='${ph.replace(/'/g, "&#39;")}'></textarea>
     <div class="brow"><button class="run" id="jsonImport">Import JSON</button><button class="gbtn" id="jsonCancel">Cancel</button><span class="savedmsg" id="jsonMsg"></span></div>
   </div>`;
+}
+
+async function downloadJson(){
+  const data = await api("/api/format-json/" + state.variableSet);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = state.variableSet + "_config.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
 }
 
 async function importJson(){
