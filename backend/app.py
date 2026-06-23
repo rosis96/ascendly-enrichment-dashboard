@@ -8,11 +8,13 @@ import csv
 import io
 import time
 import base64
+import hmac
+import hashlib
 import threading
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -79,23 +81,34 @@ init_db()
 app = FastAPI(title="Ascendly Lead Enrichment Dashboard")
 
 
+SESSION_COOKIE = "dash_session"
+
+
+def _session_token():
+    """Opaque session value tied to the configured password. Knowing it requires
+    knowing the password, but it is not the password itself."""
+    pw = os.getenv("DASH_PASSWORD") or ""
+    user = os.getenv("DASH_USER", "admin")
+    secret = os.getenv("DASH_SECRET", pw)
+    return hmac.new(secret.encode(), f"{user}:{pw}".encode(), hashlib.sha256).hexdigest()
+
+
 @app.middleware("http")
-async def basic_auth(request, call_next):
-    """Optional HTTP Basic auth. Active only when DASH_PASSWORD is set (e.g. in
-    production). No effect locally if the env var is unset."""
+async def auth_gate(request, call_next):
+    """Cookie-session auth (replaces the browser Basic-auth popup). Active only
+    when DASH_PASSWORD is set. The login page and assets stay open so the form can
+    render; everything else needs a valid session cookie."""
     pw = os.getenv("DASH_PASSWORD")
     if pw:
-        ok = False
-        auth = request.headers.get("authorization", "")
-        if auth.startswith("Basic "):
-            try:
-                user, pwd = base64.b64decode(auth[6:]).decode().split(":", 1)
-                ok = (user == os.getenv("DASH_USER", "admin") and pwd == pw)
-            except Exception:
-                ok = False
-        if not ok:
-            return Response("Authentication required", status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="dashboard"'})
+        path = request.url.path
+        open_paths = (path == "/login" or path == "/api/login" or path == "/api/logout"
+                      or path.startswith("/assets"))
+        if not open_paths:
+            tok = request.cookies.get(SESSION_COOKIE, "")
+            if not hmac.compare_digest(tok, _session_token()):
+                if path.startswith("/api/"):
+                    return JSONResponse({"detail": "Authentication required"}, status_code=401)
+                return RedirectResponse("/login", status_code=302)
     return await call_next(request)
 
 
@@ -1312,7 +1325,39 @@ def get_job(job_id: int):
         s.close()
 
 
-# ------------------------- static frontend -------------------------
+# ------------------------- auth + static frontend -------------------------
+
+class LoginBody(BaseModel):
+    password: str = ""
+    user: str = ""
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))
+
+
+@app.post("/api/login")
+def do_login(body: LoginBody):
+    pw = os.getenv("DASH_PASSWORD")
+    if not pw:
+        return {"ok": True}  # auth disabled (local dev)
+    user = os.getenv("DASH_USER", "admin")
+    user_ok = (not body.user) or hmac.compare_digest(body.user, user)
+    if user_ok and hmac.compare_digest(body.password or "", pw):
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(SESSION_COOKIE, _session_token(), httponly=True,
+                        samesite="lax", max_age=60 * 60 * 24 * 30, path="/")
+        return resp
+    return JSONResponse({"ok": False, "detail": "Wrong password"}, status_code=401)
+
+
+@app.post("/api/logout")
+def do_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
 
 @app.get("/")
 def index():

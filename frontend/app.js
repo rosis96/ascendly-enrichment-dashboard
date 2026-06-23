@@ -1,9 +1,11 @@
 const API = "";
 const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤" };
 const VBUCKET = { valid: "p-green", risky: "p-amber", invalid: "p-red" };
+const ROW_CAP_STEP = 250;   // how many rows to render at once (windowing for smoothness)
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
-  view: "table", client: "ascendly", labels: {}, editId: null, filter: "all", industryFilter: "" };
+  view: "table", client: "ascendly", labels: {}, editId: null, filter: "all", industryFilter: "",
+  rowCap: ROW_CAP_STEP, lastCount: 0, tick: 0 };
 
 function leadCat(ld){
   if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
@@ -123,6 +125,7 @@ async function selectList(id, name, count){
   state.listId = id;
   showView("table");
   state.selectedLeads.clear();
+  state.rowCap = ROW_CAP_STEP;
   if(state.poll){ clearInterval(state.poll); state.poll = null; }
   state.running = false; updateRunUI();
   $("viewTitle").textContent = name;
@@ -139,23 +142,29 @@ async function selectList(id, name, count){
 async function refresh(){
   if(!state.listId) return null;
   const d = await api(`/api/lists/${state.listId}`);
+  state.lastCount = d.list ? d.list.count : state.lastCount;
   renderGrid(d);
   renderBar(d);
   return d;
 }
 
 function startPolling(jobId){
-  state.jobId = jobId; state.running = true; updateRunUI();
+  state.jobId = jobId; state.running = true; state.tick = 0; updateRunUI();
   if(state.poll) clearInterval(state.poll);
   state.poll = setInterval(async () => {
     let j;
     try{ j = await api("/api/jobs/" + jobId); }catch(e){ return; }
-    await refresh();
-    if(["done", "error", "cancelled"].includes(j.status)){
+    // cheap: update only the progress bar every tick (no grid rebuild)
+    renderBar({ job: j, list: { count: state.lastCount || j.total || 0 } });
+    state.tick++;
+    const finished = ["done", "error", "cancelled"].includes(j.status);
+    // full grid refresh only every ~6s, and once when the run finishes
+    if(finished || state.tick % 6 === 0) await refresh();
+    if(finished){
       clearInterval(state.poll); state.poll = null; state.running = false; updateRunUI();
       loadBalance(); loadLists();
     }
-  }, 800);
+  }, 1000);
 }
 
 function renderGrid(d){
@@ -187,9 +196,9 @@ function renderGrid(d){
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
     : `<span class="gtact" data-act="clrall">Clear results</span>`);
   gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
-  gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; renderGrid(d); });
+  gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; state.rowCap = ROW_CAP_STEP; renderGrid(d); });
   const indSel = gt.querySelector("#indFilter");
-  if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; renderGrid(d); };
+  if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; state.rowCap = ROW_CAP_STEP; renderGrid(d); };
   const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
   wire("selnr", () => {
     notrunIds.forEach(id => state.selectedLeads.add(id));
@@ -214,8 +223,14 @@ function renderGrid(d){
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
     cols.map(c => `<th>${esc(c)}</th>`).join("") +
     `<th style="color:var(--acc-tx);cursor:pointer">+ enrichment</th>`;
+  // Windowing: only render the first rowCap rows so a 3000-row list doesn't all
+  // live in the DOM (the main source of scroll/interaction lag). A "Show more"
+  // row reveals the next batch. Selection/export still operate on the full view.
+  const ncol = cols.length + 3;   // checkbox + lead + cols + "+ enrichment"
+  const shown = view.slice(0, state.rowCap);
   const body = $("body"); body.innerHTML = "";
-  view.forEach(ld => {
+  const frag = document.createDocumentFragment();
+  shown.forEach(ld => {
     const r = ld.result || {};
     const tr = document.createElement("tr");
     const ck = state.selectedLeads.has(ld.id) ? "checked" : "";
@@ -232,8 +247,19 @@ function renderGrid(d){
     state.selected.forEach(k => { cells += `<td>${varCell(ld, r, k)}</td>`; });
     cells += `<td></td>`;
     tr.innerHTML = cells;
-    body.appendChild(tr);
+    frag.appendChild(tr);
   });
+  if(view.length > shown.length){
+    const tr = document.createElement("tr");
+    tr.className = "morerow";
+    tr.innerHTML = `<td colspan="${ncol}">Showing ${shown.length} of ${view.length} · ` +
+      `<a class="gtact" id="showMore">Show ${Math.min(ROW_CAP_STEP, view.length - shown.length)} more</a>` +
+      ` · <a class="gtact" id="showAll">Show all</a></td>`;
+    frag.appendChild(tr);
+  }
+  body.appendChild(frag);
+  const sm = $("showMore"); if(sm) sm.onclick = () => { state.rowCap += ROW_CAP_STEP; renderGrid(d); };
+  const sa = $("showAll"); if(sa) sa.onclick = () => { state.rowCap = view.length; renderGrid(d); };
 
   const selAll = $("selAll");
   if(selAll){
@@ -926,6 +952,12 @@ function init(){
   $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
   $("formatBtn").onclick = loadFormat;
   $("rulesBtn").onclick = loadRules;
+  const lo = $("logoutBtn");
+  if(lo) lo.onclick = async () => {
+    if(!confirm("Log out of the workspace?")) return;
+    try{ await fetch("/api/logout", { method: "POST" }); }catch(e){}
+    window.location = "/";
+  };
   $("settingsBtn").onclick = loadSettings;
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
   $("runBtn").onclick = $("runBtn2").onclick = run;
