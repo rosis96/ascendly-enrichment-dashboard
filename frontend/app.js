@@ -450,8 +450,39 @@ function showView(name){
   $("runbar").hidden = name !== "table";
   if(name !== "table") $("gridtools").hidden = true;
   $("formatView").hidden = name !== "format";
+  const rv = $("rulesView"); if(rv) rv.hidden = name !== "rules";
   $("settingsView").hidden = name !== "settings";
   updateRunUI();
+}
+
+async function loadRules(){
+  showView("rules");
+  $("viewTitle").textContent = "Correction rules";
+  $("viewSub").textContent = "Plain-English do / avoid rules added to every enrichment in this set. Applies live to leads not yet enriched.";
+  const r = await api("/api/rules/" + encodeURIComponent(state.variableSet));
+  $("rulesView").innerHTML =
+    `<div class="fv-sel"><label>Format set <b>${esc(state.variableSet)}</b></label></div>` +
+    `<p class="rules-help">One rule per line. The AI obeys these on top of everything else. Examples:<br>` +
+    `&bull; In value_proposition, the "by ..." part must describe OUR service, never the prospect's own service.<br>` +
+    `&bull; Never mention the prospect's pricing or specific dollar figures.<br>` +
+    `&bull; Keep sentence 1 about getting them more clients, not about what they sell.</p>` +
+    `<textarea id="rulesText" class="rules-ta" placeholder="Type one rule per line...">${esc(r.text || "")}</textarea>` +
+    `<div class="rules-actions"><button class="run" id="rulesSave">Save rules</button>` +
+    `<span class="muted" id="rulesMsg"></span></div>`;
+  $("rulesSave").onclick = saveRules;
+}
+
+async function saveRules(){
+  const text = $("rulesText").value;
+  try{
+    const res = await api("/api/rules/" + encodeURIComponent(state.variableSet), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const m = $("rulesMsg");
+    if(m){ m.textContent = `Saved · ${res.count} rule${res.count === 1 ? "" : "s"} active`;
+      setTimeout(() => { m.textContent = ""; }, 4000); }
+  }catch(e){ const m = $("rulesMsg"); if(m) m.textContent = "Save failed"; }
 }
 
 async function loadFormat(){
@@ -889,6 +920,7 @@ function init(){
   $("createBtn").onclick = createList;
   $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
   $("formatBtn").onclick = loadFormat;
+  $("rulesBtn").onclick = loadRules;
   $("settingsBtn").onclick = loadSettings;
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
   $("runBtn").onclick = $("runBtn2").onclick = run;

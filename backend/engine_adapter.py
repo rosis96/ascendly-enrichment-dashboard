@@ -534,14 +534,14 @@ def load_client_profile(name):
         return {}
 
 
-def enrich(lead, base, selected=None, custom_specs=None, profile=None):
+def enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None):
     """Entry point used by the job runner. Switches on ENRICH_MODE."""
     if os.getenv("ENRICH_MODE", "demo").lower() == "real":
-        return _real_enrich(lead, base, selected, custom_specs, profile)
+        return _real_enrich(lead, base, selected, custom_specs, profile, extra_rules)
     return demo_enrich(lead, base, selected, custom_specs)
 
 
-def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
+def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None):
     """Run the live engine for one lead, using the workspace's profile + the
     effective variable set (custom variables override same-named built-ins)."""
     import sys
@@ -631,12 +631,19 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None):
         "(bringing the prospect clients, meetings, pipeline), and not the prospect's own service? If it "
         "describes the prospect's service, REWRITE it before returning.",
     ]
+    # User correction rules (the editable "avoid / always do" list). These are the
+    # user's own words and take priority, so they go last and are flagged as such.
+    user_rules = []
+    for line in (extra_rules or []):
+        line = str(line).strip()
+        if line:
+            user_rules.append("USER CORRECTION (obey this exactly): " + line)
     vs = {
         "variable_set_name": "dashboard",
         "max_tokens": base_spec.get("max_tokens", 2200),
         "temperature": base_spec.get("temperature", 0.7),
         "output_keys": [v["name"] for v in variables],
-        "global_output_rules": base_rules + website_rules + role_lock,
+        "global_output_rules": base_rules + website_rules + role_lock + user_rules,
         "variables": variables,
     }
     if base_spec.get("icp_definition"):

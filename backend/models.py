@@ -61,6 +61,17 @@ class HiddenVariable(Base):
     name = Column(String)
 
 
+class EnrichRule(Base):
+    """Free-text correction rules the user piles up per format set / workspace.
+    One row per variable_set. Each non-empty line is injected into the writer's
+    global rules at enrichment time, so it acts as a live 'avoid / always do' list."""
+    __tablename__ = "enrich_rules"
+    id = Column(Integer, primary_key=True)
+    variable_set = Column(String, unique=True, index=True)
+    text = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     id = Column(Integer, primary_key=True)

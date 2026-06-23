@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import SessionLocal, init_db
-from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace
+from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule
 import engine_adapter as ea
 from integrations import reoon
 
@@ -26,6 +26,17 @@ def _custom_specs(s, variable_set):
     """List of engine-format specs for a set's custom variables."""
     rows = s.query(CustomVariable).filter_by(variable_set=variable_set).order_by(CustomVariable.id).all()
     return [r.spec for r in rows]
+
+
+def _rules_text(s, variable_set):
+    row = s.query(EnrichRule).filter_by(variable_set=variable_set).first()
+    return row.text if row else ""
+
+
+def _rules_list(s, variable_set):
+    """User correction rules as a list of non-empty lines. Read fresh per lead so
+    edits saved mid-run apply to leads not yet processed (live corrections)."""
+    return [ln.strip() for ln in _rules_text(s, variable_set).splitlines() if ln.strip()]
 
 
 def _base_of(s, key):
@@ -227,7 +238,7 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
         CANCEL.discard(job_id)
 
 
-def _enrich_one(lead_id, base, enrichments, custom_specs, profile):
+def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=None):
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -235,7 +246,8 @@ def _enrich_one(lead_id, base, enrichments, custom_specs, profile):
             return None
         ld.status = "running"
         s.commit()
-        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
+        extra_rules = _rules_list(s, variable_set) if variable_set else []
+        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
         if res.get("_status") == "error" or not res.get("ICPReview"):
             # website unreachable / unreadable -> no copy, just mark it
             ld.result = {"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]}
@@ -273,7 +285,7 @@ def _verify_one(lead_id, mode):
         s.close()
 
 
-def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile):
+def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -294,7 +306,8 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile):
             if not ld.result:
                 ld.status = "running"
                 s.commit()
-                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile)
+                extra_rules = _rules_list(s, variable_set) if variable_set else []
+                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
                 inc["cost"] = cost
                 if r.get("_status") == "error" or not r.get("ICPReview"):
                     ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
@@ -321,6 +334,7 @@ def _run_job(job_id, target_ids):
     s = SessionLocal()
     try:
         job = s.get(Job, job_id)
+        vset = job.variable_set
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
@@ -329,7 +343,7 @@ def _run_job(job_id, target_ids):
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_enrich_one, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset),
                         ENRICH_WORKERS)
 
 
@@ -362,6 +376,7 @@ def _run_pipeline_job(job_id, target_ids, mode):
     s = SessionLocal()
     try:
         job = s.get(Job, job_id)
+        vset = job.variable_set
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
@@ -370,7 +385,7 @@ def _run_pipeline_job(job_id, target_ids, mode):
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_pipeline_one, mode=mode, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset),
                         ENRICH_WORKERS)
 
 
@@ -1104,6 +1119,38 @@ def status():
 @app.get("/api/taxonomy")
 def get_taxonomy():
     return ea.taxonomy()
+
+
+class RulesBody(BaseModel):
+    text: str = ""
+
+
+@app.get("/api/rules/{variable_set}")
+def get_rules(variable_set: str):
+    s = SessionLocal()
+    try:
+        return {"variable_set": variable_set, "text": _rules_text(s, variable_set)}
+    finally:
+        s.close()
+
+
+@app.put("/api/rules/{variable_set}")
+def save_rules(variable_set: str, body: RulesBody):
+    """Save the correction rules for a format set / workspace. Applied live: any
+    in-flight run reads these fresh for each lead not yet enriched."""
+    s = SessionLocal()
+    try:
+        row = s.query(EnrichRule).filter_by(variable_set=variable_set).first()
+        if not row:
+            row = EnrichRule(variable_set=variable_set, text=body.text or "")
+            s.add(row)
+        else:
+            row.text = body.text or ""
+        s.commit()
+        rules = _rules_list(s, variable_set)
+        return {"ok": True, "count": len(rules)}
+    finally:
+        s.close()
 
 
 @app.post("/api/lists/{list_id}/classify")
