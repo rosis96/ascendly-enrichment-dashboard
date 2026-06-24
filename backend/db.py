@@ -17,8 +17,11 @@ if DB_URL.startswith("postgres://"):
 if DB_URL.startswith("sqlite"):
     engine = create_engine(DB_URL, connect_args={"check_same_thread": False, "timeout": 30}, future=True)
 else:
-    # bigger pool so concurrent workers each get a connection (Postgres/Neon)
-    engine = create_engine(DB_URL, pool_size=20, max_overflow=10, pool_pre_ping=True, future=True)
+    # bigger pool so many concurrent workers can each grab a short-lived connection.
+    # Workers hold connections only briefly (read, then release during scrape, then
+    # write), so this comfortably supports ~100 classify workers.
+    engine = create_engine(DB_URL, pool_size=30, max_overflow=30, pool_pre_ping=True,
+                           pool_timeout=60, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
 

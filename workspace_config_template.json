@@ -1,0 +1,44 @@
+{
+  "profile": {
+    "service_brief": "We are a B2B lead-generation agency that books qualified sales meetings for our clients.",
+    "main_offer": "A done-for-you outbound system: targeted personalized cold outreach plus website-visitor capture, with interested leads booked straight onto the client's calendar.",
+    "what_we_are_pitching": "More booked sales calls and a consistent pipeline. We never pitch enrichment, tools, software, or features.",
+    "target_outcome": "More booked meetings, more closed deals, and a predictable flow of qualified leads.",
+    "icp_summary": "B2B companies selling high-value services: marketing/branding agencies, B2B SaaS and tech firms, and consultancies."
+  },
+  "variables": [
+    {
+      "label": "Personalized First Line",
+      "min_words": 12,
+      "max_words": 25,
+      "guidance": "A one-sentence opener that proves we researched THIS company. Reference something specific and real from their website (a service, niche, client type, or positioning). Never generic flattery, never mention our own service.",
+      "examples": [
+        "The way your team niches into SaaS onboarding instead of generic design work really stands out.",
+        "Noticed your branding work is almost entirely for consumer wellness brands - sharp positioning."
+      ]
+    },
+    {
+      "label": "Company Category",
+      "min_words": 2,
+      "max_words": 5,
+      "guidance": "Categorize the company the way they would describe themselves. Use their real market positioning, not a generic label. Should end in a plural noun like 'agencies', 'firms', 'companies', or 'platforms'.",
+      "examples": ["B2B branding agencies", "SaaS marketing firms", "fintech consultancies"]
+    },
+    {
+      "label": "Value Proposition",
+      "min_words": 45,
+      "max_words": 80,
+      "guidance": "Three sentences. (1) What we help them achieve, (2) a real observation about them, (3) how our system amplifies that commercially. Always pitch OUR service (booking meetings); never describe their own service as if we provide it.",
+      "template": "We help {{company_category}} get more clients by {{mechanism}}. I've seen how {{observation}}. With {{solution}}, that usually means {{result_1}}, {{result_2}} & {{result_3}}.",
+      "placeholders": [
+        { "token": "company_category", "description": "the prospect's own category", "examples": ["B2B branding agencies", "SaaS firms"] },
+        { "token": "mechanism", "description": "how WE create the outcome, in our real words", "min_words": 5, "max_words": 12, "examples": ["running targeted personalized outreach and capturing inbound leads before they leave the site"] },
+        { "token": "observation", "description": "a real, researched detail about the prospect", "min_words": 8, "max_words": 18, "examples": ["your studio wins most of its work from referrals in the wellness space"] },
+        { "token": "solution", "description": "the lever that drives the results", "min_words": 3, "max_words": 8, "examples": ["a managed outbound and inbound booking system"] },
+        { "token": "result_1", "description": "a commercial outcome", "examples": ["more booked calls"] },
+        { "token": "result_2", "description": "a commercial outcome", "examples": ["closed deals"] },
+        { "token": "result_3", "description": "a commercial outcome", "examples": ["consistent meeting flow"] }
+      ]
+    }
+  ]
+}

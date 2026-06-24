@@ -169,9 +169,10 @@ def _parse_csv(content_bytes):
 
 ENRICH_WORKERS = int(os.getenv("ENRICH_WORKERS", "10"))
 VERIFY_WORKERS = int(os.getenv("VERIFY_WORKERS", "10"))
-# Upper bound on user-chosen concurrency, so a huge number can't hammer OpenAI/Reoon
-# rate limits (which is what degraded quality before). Raise via env if needed.
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "20"))
+# Upper bound on user-chosen concurrency. Classification is cheap and benefits from
+# high parallelism, so the ceiling is 100; for enrichment, keeping it ~10 is wiser
+# (rate limits/quality). Override via env if needed.
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))
 
 
 def _clamp_workers(n, default):
@@ -383,17 +384,27 @@ def _run_verify_job(job_id, target_ids, mode, workers=None):
 
 
 def _classify_one(lead_id, tax):
+    # Hold the DB connection only briefly: read the lead, RELEASE the connection
+    # during the slow homepage scrape, then reopen briefly to write. This lets us
+    # run many workers (e.g. 100) without exhausting the connection pool.
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
         if not ld:
             return None
-        label, cost = ea.classify_industry({"website": ld.website, "company": ld.company}, tax)
-        ld.industry = label or ""
-        s.commit()
-        return {"cost": cost, "classified": 1} if label else {"cost": cost, "nosite": 1}
+        website, company = ld.website, ld.company
     finally:
         s.close()
+    label, cost = ea.classify_industry({"website": website, "company": company}, tax)
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if ld:
+            ld.industry = label or ""
+            s.commit()
+    finally:
+        s.close()
+    return {"cost": cost, "classified": 1} if label else {"cost": cost, "nosite": 1}
 
 
 def _run_classify_job(job_id, target_ids, workers=None):
