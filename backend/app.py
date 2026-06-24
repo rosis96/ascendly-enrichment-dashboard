@@ -1340,16 +1340,14 @@ def reoon_balance():
         return {"enabled": True, "error": str(exc)}
 
 
-@app.get("/api/lists/{list_id}/export")
-def export_list(list_id: int, ids: Optional[str] = None):
+def _do_export(list_id, wanted):
     s = SessionLocal()
     try:
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
         q = s.query(Lead).filter_by(list_id=list_id)
-        if ids:  # export only the selected / filtered leads
-            wanted = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        if wanted:  # export only the selected / filtered leads
             q = q.filter(Lead.id.in_(wanted))
         leads = q.all()
         hidden = _hidden_names(s, l.variable_set)
@@ -1379,6 +1377,24 @@ def export_list(list_id: int, ids: Optional[str] = None):
                         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
     finally:
         s.close()
+
+
+@app.get("/api/lists/{list_id}/export")
+def export_list(list_id: int, ids: Optional[str] = None):
+    # GET kept for small selections; large ones use POST (below) to avoid 431.
+    wanted = [int(x) for x in ids.split(",") if x.strip().isdigit()] if ids else None
+    return _do_export(list_id, wanted)
+
+
+class ExportBody(BaseModel):
+    ids: list[int] = []
+
+
+@app.post("/api/lists/{list_id}/export")
+def export_list_post(list_id: int, body: ExportBody):
+    """IDs in the body (no URL length limit), so exporting a full/large selection
+    can't hit HTTP 431. Empty ids = whole list."""
+    return _do_export(list_id, body.ids or None)
 
 
 @app.post("/api/jobs/{job_id}/cancel")

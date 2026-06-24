@@ -499,12 +499,29 @@ async function stop(){
   await api(`/api/jobs/${state.jobId}/cancel`, { method: "POST" });
 }
 
-function exportCsv(){
+async function exportCsv(){
   if(!state.listId) return;
-  let ids = "";
-  if(state.selectedLeads.size > 0) ids = [...state.selectedLeads].join(",");
-  else if(state.filter !== "all") ids = (state.viewIds || []).join(",");
-  window.location = `/api/lists/${state.listId}/export` + (ids ? `?ids=${encodeURIComponent(ids)}` : "");
+  // Send ids in the POST body (not the URL) so big selections can't hit HTTP 431.
+  let ids = [];
+  if(state.selectedLeads.size > 0) ids = [...state.selectedLeads];
+  else if(state.filter !== "all") ids = (state.viewIds || []);
+  try{
+    const r = await fetch(`/api/lists/${state.listId}/export`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if(r.status === 401){ window.location = "/login"; return; }
+    if(!r.ok){ alert("Export failed. Try again."); return; }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const fname = m ? m[1] : "export.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){ alert("Export failed. Try again."); }
 }
 
 async function loadBalance(){
