@@ -210,6 +210,9 @@ def _apply_agg(job, agg):
     elif job.kind == "classify":
         job.cost = round(agg.get("cost", 0), 4)
         job.summary = {"classified": agg.get("classified", 0), "nosite": agg.get("nosite", 0)}
+    elif job.kind == "titlecheck":
+        job.cost = 0
+        job.summary = {"tpass": agg.get("tpass", 0), "trej": agg.get("trej", 0)}
     else:
         job.cost = round(agg.get("cost", 0), 4)
         job.icp = agg.get("icp", 0)
@@ -397,6 +400,41 @@ def _run_classify_job(job_id, target_ids, workers=None):
     from functools import partial
     _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()),
                         _clamp_workers(workers, ENRICH_WORKERS))
+
+
+def _run_title_job(job_id, target_ids):
+    """Title check is pure string matching (no scraping, no API), so we process it
+    in bulk chunks instead of one-lead-at-a-time: far faster on big lists and it
+    doesn't hammer the DB. Marks each lead title_status = pass | rejected."""
+    _write_job(job_id, 0, {}, status="running")
+    agg, done = {}, 0
+    CHUNK = 500
+    try:
+        for i in range(0, len(target_ids), CHUNK):
+            if job_id in CANCEL:
+                break
+            chunk = target_ids[i:i + CHUNK]
+            s = SessionLocal()
+            try:
+                leads = s.query(Lead).filter(Lead.id.in_(chunk)).all()
+                mappings = []
+                for ld in leads:
+                    st = "pass" if ea.title_passes(ld.title or "") else "rejected"
+                    mappings.append({"id": ld.id, "title_status": st})
+                    key = "tpass" if st == "pass" else "trej"
+                    agg[key] = agg.get(key, 0) + 1
+                    done += 1
+                if mappings:
+                    s.bulk_update_mappings(Lead, mappings)
+                    s.commit()
+            finally:
+                s.close()
+            _write_job(job_id, done, agg)  # progress per chunk
+        _write_job(job_id, done, agg, status="cancelled" if job_id in CANCEL else "done")
+    except Exception:
+        _write_job(job_id, done, agg, status="error")
+    finally:
+        CANCEL.discard(job_id)
 
 
 def _run_pipeline_job(job_id, target_ids, mode, workers=None):
@@ -1006,7 +1044,7 @@ def get_list(list_id: int):
                 "title": ld.title, "company": ld.company, "website": ld.website,
                 "email": ld.email, "status": ld.status, "result": ld.result or {},
                 "verify": ld.verify or {}, "email_status": ld.email_status or "",
-                "industry": ld.industry or "",
+                "industry": ld.industry or "", "title_status": ld.title_status or "",
             } for ld in leads],
             "job": None if not job else {
                 "id": job.id, "kind": job.kind or "enrich", "status": job.status,
@@ -1210,6 +1248,42 @@ def classify_list(list_id: int, body: ClassifyBody):
         s.close()
     if target_ids:
         threading.Thread(target=_run_classify_job, args=(job_id, target_ids, body.workers), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids)}
+
+
+class TitleBody(BaseModel):
+    lead_ids: list[int] = []
+    limit: Optional[int] = None
+    skip_done: bool = True
+
+
+@app.post("/api/lists/{list_id}/title-check")
+def title_check_list(list_id: int, body: TitleBody):
+    """Standalone title check: mark each lead title_status pass/rejected by the
+    decision-maker title rules. No scraping, no API, no credits."""
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if not l:
+            raise HTTPException(404, "List not found")
+        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        if body.lead_ids:
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
+        elif body.limit and body.limit > 0:
+            candidates = q.limit(body.limit).all()
+        else:
+            candidates = q.all()
+        targets = [ld for ld in candidates if not ld.title_status] if body.skip_done else candidates
+        job = Job(list_id=list_id, kind="titlecheck", status="queued" if targets else "done",
+                  total=len(targets), variable_set=l.variable_set, summary={})
+        s.add(job)
+        s.commit()
+        job_id = job.id
+        target_ids = [ld.id for ld in targets]
+    finally:
+        s.close()
+    if target_ids:
+        threading.Thread(target=_run_title_job, args=(job_id, target_ids), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids)}
 
 

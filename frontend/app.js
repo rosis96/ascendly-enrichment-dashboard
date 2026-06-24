@@ -1,5 +1,5 @@
 const API = "";
-const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤" };
+const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤", check: "✓" };
 const VBUCKET = { valid: "p-green", risky: "p-amber", invalid: "p-red" };
 const ROW_CAP_STEP = 250;   // how many rows to render at once (windowing for smoothness)
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
@@ -174,12 +174,20 @@ function renderGrid(d){
   const grid = $("grid"); grid.hidden = leads.length === 0;
 
   // filter bar with counts
-  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0 };
-  leads.forEach(l => { counts[leadCat(l)]++; });
+  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0, tpass: 0, trej: 0 };
+  leads.forEach(l => {
+    counts[leadCat(l)]++;
+    if(l.title_status === "pass") counts.tpass++;
+    else if(l.title_status === "rejected") counts.trej++;
+  });
   const gt = $("gridtools");
   gt.hidden = leads.length === 0;
   const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
     ["rejected", "Title-rejected"], ["error", "No website"], ["notrun", "Not run"]];
+  // show title-check chips only once a title check has been run
+  if(counts.tpass || counts.trej){
+    chips.push(["tpass", "Title ✓"], ["trej", "Title ✗"]);
+  }
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
   const n = state.selectedLeads.size;
@@ -193,7 +201,10 @@ function renderGrid(d){
   const notrunIds = leads.filter(l => leadCat(l) === "notrun").map(l => l.id);
   const selNr = notrunIds.length
     ? `<span class="gtact" data-act="selnr">Select not-run ${notrunIds.length}</span>` : "";
-  const acts = pre + selNr + (n > 0
+  const tpassIds = leads.filter(l => l.title_status === "pass").map(l => l.id);
+  const selTp = tpassIds.length
+    ? `<span class="gtact" data-act="seltp">Select title ✓ ${tpassIds.length}</span>` : "";
+  const acts = pre + selTp + selNr + (n > 0
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
     : `<span class="gtact" data-act="clrall">Clear results</span>`);
   gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
@@ -206,6 +217,11 @@ function renderGrid(d){
     state.filter = "notrun";
     renderGrid(d); updateScope();
   });
+  wire("seltp", () => {
+    tpassIds.forEach(id => state.selectedLeads.add(id));
+    state.filter = "tpass"; state.rowCap = ROW_CAP_STEP;
+    renderGrid(d); updateScope();
+  });
   wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));
@@ -213,7 +229,11 @@ function renderGrid(d){
   wire("clrall", () => clearResults([]));
 
   // apply filter; in "all", surface enriched rows to the top
-  let view = state.filter === "all" ? leads.slice() : leads.filter(l => leadCat(l) === state.filter);
+  let view;
+  if(state.filter === "all") view = leads.slice();
+  else if(state.filter === "tpass") view = leads.filter(l => l.title_status === "pass");
+  else if(state.filter === "trej") view = leads.filter(l => l.title_status === "rejected");
+  else view = leads.filter(l => leadCat(l) === state.filter);
   if(state.industryFilter) view = view.filter(l => (l.industry || "") === state.industryFilter);
   if(state.filter === "all"){
     view.sort((a, b) => (leadCat(a) === "enriched" ? 0 : 1) - (leadCat(b) === "enriched" ? 0 : 1));
@@ -336,7 +356,12 @@ function emailCell(ld){
   return `<span class="pill ${VBUCKET[bkt]}">${esc(label)}</span>`;
 }
 function titleCell(ld, r){
-  if(!hasResult(ld)) return `<span class="sk">queued</span>`;
+  if(!hasResult(ld)){
+    // standalone title-check result (before any enrichment)
+    if(ld.title_status === "pass") return `<span class="pill p-green">✓ Pass</span>`;
+    if(ld.title_status === "rejected") return `<span class="pill p-red">✕ Rejected</span>`;
+    return `<span class="sk">queued</span>`;
+  }
   if(r._status === "error") return `<span class="pill p-amber">no website</span>`;
   if(r._title_gate === "rejected") return `<span class="pill p-red">✕ Rejected</span>`;
   return `<span class="pill p-green">Pass</span>`;
@@ -382,6 +407,11 @@ function renderBar(d){
     const tail = (j.status === "done" || j.status === "cancelled")
       ? ` · ${s.classified||0} classified · ${s.nosite||0} no website` : "";
     stat.textContent = `${pre}${j.done} of ${j.total} classified${tail}`;
+  } else if(j.kind === "titlecheck"){
+    cost.textContent = "free";
+    const tail = (j.status === "done" || j.status === "cancelled")
+      ? ` · ${s.tpass||0} pass · ${s.trej||0} rejected` : "";
+    stat.textContent = `${pre}${j.done} of ${j.total} title-checked${tail}`;
   } else {
     cost.textContent = "$" + (j.cost || 0).toFixed(2);
     const tail = (j.status === "done" || j.status === "cancelled")
@@ -413,6 +443,8 @@ async function startJob(kind){
     eligible = candidates.filter(l => !hasVerify(l));
   } else if(kind === "classify"){
     eligible = candidates.filter(l => !l.industry);
+  } else if(kind === "titlecheck"){
+    eligible = candidates.filter(l => !l.title_status);
   } else if(kind === "pipeline"){
     eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
   } else {
@@ -423,18 +455,26 @@ async function startJob(kind){
   if(eligible.length === 0){
     if(kind === "verify"){ alert("All leads in scope are already verified."); return; }
     if(kind === "classify"){ alert("All leads in scope are already classified."); return; }
-    if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
-    skipDone = false;
-    eligible = kind === "pipeline" ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
+    if(kind === "titlecheck"){
+      if(!confirm("All leads in scope are already title-checked. Re-check them?")) return;
+      skipDone = false; eligible = candidates;
+    } else {
+      if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
+      skipDone = false;
+      eligible = kind === "pipeline" ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
+    }
     if(eligible.length === 0){ alert("Nothing to run in this scope."); return; }
   }
   const count = eligible.length;
 
-  const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "pipeline" ? "verify + enrich" : "enrich"));
-  const credit = kind === "verify" ? "Reoon" : (kind === "classify" ? "a little OpenAI" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI"));
-  if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
+  const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "pipeline" ? "verify + enrich" : "enrich")));
+  // title check is free + instant, so no credit confirmation
+  if(kind !== "titlecheck"){
+    const credit = kind === "verify" ? "Reoon" : (kind === "classify" ? "a little OpenAI" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI"));
+    if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
+  }
 
-  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "pipeline" ? "run-pipeline" : "run"));
+  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "pipeline" ? "run-pipeline" : "run")));
   const body = Object.assign({ skip_done: skipDone }, scope);
   if(kind === "enrich" || kind === "pipeline") body.enrichments = state.selected;
   if(kind === "enrich") body.only_safe = onlySafe;
@@ -452,6 +492,7 @@ const run = () => startJob("enrich");
 const verify = () => startJob("verify");
 const pipeline = () => startJob("pipeline");
 const classify = () => startJob("classify");
+const titleCheck = () => startJob("titlecheck");
 
 async function stop(){
   if(!state.jobId) return;
@@ -963,6 +1004,7 @@ function init(){
   $("wsBtn").onclick = e => { if(e.target.closest("#collapseBtn")) return; toggleWsMenu(); };
   $("runBtn").onclick = $("runBtn2").onclick = run;
   $("verifyBtn").onclick = verify;
+  $("titleBtn").onclick = titleCheck;
   $("classifyBtn").onclick = classify;
   $("pipelineBtn").onclick = pipeline;
   $("exportBtn").onclick = $("exportNav").onclick = exportCsv;

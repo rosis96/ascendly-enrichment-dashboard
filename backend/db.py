@@ -29,7 +29,8 @@ def _migrate():
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     wanted = {
-        "leads": [("verify", "JSON"), ("email_status", "VARCHAR"), ("industry", "VARCHAR")],
+        "leads": [("verify", "JSON"), ("email_status", "VARCHAR"), ("industry", "VARCHAR"),
+                  ("title_status", "VARCHAR")],
         "jobs": [("kind", "VARCHAR"), ("summary", "JSON")],
     }
     with engine.begin() as conn:

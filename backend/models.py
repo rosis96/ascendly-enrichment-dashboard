@@ -30,6 +30,7 @@ class Lead(Base):
     verify = Column(JSON, default=dict)      # raw Reoon result
     email_status = Column(String, default="")  # reoon status label (safe/catch_all/invalid/...)
     industry = Column(String, default="")    # umbrella industry from website classification
+    title_status = Column(String, default="")  # standalone title check: pass | rejected
     status = Column(String, default="pending")  # pending | running | done | skipped
     list = relationship("LeadList", back_populates="leads")
 

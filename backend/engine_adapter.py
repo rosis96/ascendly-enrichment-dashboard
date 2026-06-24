@@ -411,13 +411,10 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
 DEFAULT_TAXONOMY = [
     "Marketing & Advertising", "Creative & Branding Agency", "SaaS & Software",
     "IT Services & Consulting", "Cybersecurity", "Fintech & Financial Services",
-    "Healthcare & Life Sciences", "Manufacturing & Industrial",
-    "E-commerce & Retail", "Real Estate & Property", "Construction",
-    "Logistics & Supply Chain", "Education & EdTech",
-    "Professional Services (Legal/Accounting/HR)", "Staffing & Recruiting",
-    "Media & Entertainment", "Energy & Utilities", "Telecommunications",
-    "Hospitality & Travel", "Automotive & Transportation",
-    "Nonprofit & Government", "Other / Unclear",
+    "Renewable Energy & Solar", "Healthcare & Life Sciences",
+    "E-commerce & Retail", "Real Estate & Property", "Construction & Engineering",
+    "Professional Services (Legal/Accounting/HR)", "Manufacturing & Industrial",
+    "Media & Entertainment", "Other B2B", "Other B2C",
 ]
 
 
