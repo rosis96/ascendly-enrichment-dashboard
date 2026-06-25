@@ -775,8 +775,8 @@ function renderFormat(profile, fmt, sets, idByName){
   let h = `<div class="fv-sel"><label>Format set <select id="fSet">` +
     sets.map(s => `<option ${s === state.variableSet ? "selected" : ""}>${esc(s)}</option>`).join("") +
     `</select></label></div>`;
-  h += `<div class="fv-h" style="display:flex;align-items:center">Client profile <span class="muted" style="margin-left:6px">— who we're writing for</span>` +
-    (profile.editable ? `<span class="vacts"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div><div class="card">`;
+  h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Client profile <span class="muted" style="margin-left:6px">— who we're writing for</span>` +
+    (profile.editable ? `<button class="gbtn" id="profJsonBtn" style="margin-left:auto;padding:6px 11px">Paste profile JSON</button><span class="vacts"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div><div class="card">`;
   if(profile.editable){
     profile.fields.forEach(f => {
       h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">` +
@@ -789,9 +789,10 @@ function renderFormat(profile, fmt, sets, idByName){
     h += `<div class="v sk">No profile fields.</div>`;
   }
   h += `</div>`;
+  if(profile.editable) h += profJsonPanelHtml();
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
-      ? `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
+      ? `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste variables JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
       : `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`) +
     `</div>`;
   h += builderHtml();
@@ -826,6 +827,9 @@ function renderFormat(profile, fmt, sets, idByName){
   if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };
   if($("jsonImport")) $("jsonImport").onclick = importJson;
   if($("jsonCancel")) $("jsonCancel").onclick = () => { $("jsonPanel").hidden = true; };
+  if($("profJsonBtn")) $("profJsonBtn").onclick = () => { const p = $("profJsonPanel"); p.hidden = !p.hidden; };
+  if($("profJsonImport")) $("profJsonImport").onclick = importProfileJson;
+  if($("profJsonCancel")) $("profJsonCancel").onclick = () => { $("profJsonPanel").hidden = true; };
   $("cvTemplate").oninput = detectPlaceholders;
   $("cvSave").onclick = saveCustom;
   $("cvCancel").onclick = () => { $("builder").hidden = true; resetBuilder(); };
@@ -835,10 +839,34 @@ function renderFormat(profile, fmt, sets, idByName){
   $("formatView").querySelectorAll("[data-edit]").forEach(x => x.onclick = () => editCustom(parseInt(x.dataset.edit, 10)));
 }
 
+function profJsonPanelHtml(){
+  const ph = '{\n  "service_brief": "What the client does...",\n  "main_offer": "...",\n  "what_we_are_pitching": "...",\n  "target_outcome": ["...", "..."],\n  "icp_summary": "..."\n}';
+  return `<div class="card builder" id="profJsonPanel" hidden>
+    <div class="blabel">Paste the CLIENT PROFILE JSON here (just the profile — variables go in the box below). Flat objects and arrays are fine.</div>
+    <textarea id="profJsonText" rows="10" placeholder='${ph.replace(/'/g, "&#39;")}'></textarea>
+    <div class="brow"><button class="run" id="profJsonImport">Import profile</button><button class="gbtn" id="profJsonCancel">Cancel</button><span class="savedmsg" id="profJsonMsg"></span></div>
+  </div>`;
+}
+
+async function importProfileJson(){
+  let data;
+  try{ data = JSON.parse($("profJsonText").value); }
+  catch(e){ const m = $("profJsonMsg"); m.textContent = "Invalid JSON — check the format."; m.style.color = "var(--red-tx)"; return; }
+  const norm = normalizeConfigJson(data);
+  try{
+    await api(`/api/workspaces/${state.variableSet}/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: norm.profile, variables: [] }),   // profile only
+    });
+    const m = $("profJsonMsg"); m.style.color = "var(--green-tx)"; m.textContent = "✓ Profile imported";
+    setTimeout(loadFormat, 700);
+  }catch(e){ const m = $("profJsonMsg"); m.textContent = "Import failed: " + e.message; m.style.color = "var(--red-tx)"; }
+}
+
 function jsonPanelHtml(){
-  const ph = '{\n  "profile": { "service_brief": "...", "main_offer": "...", "what_we_are_pitching": "...", "target_outcome": "...", "icp_summary": "..." },\n  "variables": [\n    { "label": "Value Proposition", "min_words": 45, "max_words": 80,\n      "guidance": "How to write it...", "template": "We specialize in {{x}} ...",\n      "examples": ["..."], "placeholders": [{ "token": "x", "description": "...", "examples": ["..."] }] }\n  ]\n}';
+  const ph = '{\n  "variables": [\n    { "label": "Value Proposition", "min_words": 45, "max_words": 80,\n      "guidance": "How to write it...", "template": "We specialize in {{x}} ...",\n      "examples": ["..."], "placeholders": [{ "token": "x", "description": "...", "examples": ["..."] }] }\n  ]\n}';
   return `<div class="card builder" id="jsonPanel" hidden>
-    <div class="blabel">Paste a JSON config (client profile + variables) — e.g. one ChatGPT built for you</div>
+    <div class="blabel">Paste the VARIABLES JSON here (just the variables — the client profile goes in the box above). A bare array of variables also works.</div>
     <textarea id="jsonText" rows="11" placeholder='${ph.replace(/'/g, "&#39;")}'></textarea>
     <div class="brow"><button class="run" id="jsonImport">Import JSON</button><button class="gbtn" id="jsonCancel">Cancel</button><span class="savedmsg" id="jsonMsg"></span></div>
   </div>`;
@@ -854,11 +882,20 @@ async function downloadJson(){
   URL.revokeObjectURL(a.href);
 }
 
+// Accept either { profile:{...}, variables:[...] } or a flat profile object
+// (all the fields at the top level). A flat object becomes the profile.
+function normalizeConfigJson(data){
+  if(data && typeof data === "object" && !Array.isArray(data) && ("profile" in data || "variables" in data)){
+    return { profile: data.profile || {}, variables: data.variables || [] };
+  }
+  return { profile: data || {}, variables: [] };
+}
+
 async function importJson(){
   let data;
   try{ data = JSON.parse($("jsonText").value); }
   catch(e){ const m = $("jsonMsg"); m.textContent = "Invalid JSON — check the format."; m.style.color = "var(--red-tx)"; return; }
-  const body = { profile: data.profile || {}, variables: data.variables || [] };
+  const body = Array.isArray(data) ? { profile: {}, variables: data } : normalizeConfigJson(data);
   try{
     const r = await api(`/api/workspaces/${state.variableSet}/import`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -1099,7 +1136,7 @@ async function createWorkspace(){
   if(jsonData){
     await api(`/api/workspaces/${r.key}/import`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile: jsonData.profile || {}, variables: jsonData.variables || [] }),
+      body: JSON.stringify(normalizeConfigJson(jsonData)),
     });
   }
   await setWorkspace(r.key, r.name);

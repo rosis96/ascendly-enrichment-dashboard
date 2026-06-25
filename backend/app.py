@@ -882,6 +882,23 @@ def export_format_json(variable_set: str):
         s.close()
 
 
+def _coerce_profile_value(v):
+    """Turn any JSON value into a readable string so a rich pasted profile (with
+    arrays/objects like target_outcome, positioning, avoid_words) imports cleanly
+    and still feeds the writer, instead of being silently dropped."""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return ", ".join(_coerce_profile_value(x) for x in v if x not in (None, ""))
+    if isinstance(v, dict):
+        return " | ".join(f"{k.replace('_', ' ')}: {_coerce_profile_value(val)}" for k, val in v.items())
+    return "" if v is None else str(v)
+
+
 class ImportJsonBody(BaseModel):
     profile: dict = {}
     variables: list[dict] = []
@@ -898,7 +915,8 @@ def import_workspace_json(slug: str, body: ImportJsonBody):
             raise HTTPException(404, "Import is only available for your own workspaces, not built-in clients.")
         if body.profile:
             merged = dict(w.profile or {})
-            merged.update({k: v for k, v in body.profile.items() if isinstance(v, str)})
+            for k, v in body.profile.items():
+                merged[k] = _coerce_profile_value(v)
             w.profile = merged
         added = 0
         for v in body.variables:
