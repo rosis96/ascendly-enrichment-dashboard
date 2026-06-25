@@ -226,3 +226,17 @@ tbody tr:hover{background:var(--surface)}
 .dbpage{display:flex;align-items:center;gap:12px;padding:12px 2px;font-size:12.5px;color:var(--muted)}
 .dbpage select{height:30px;border:1px solid var(--line);border-radius:var(--r);padding:0 8px;font-family:inherit;background:var(--panel);color:var(--text)}
 .gbtn[disabled]{opacity:.45;cursor:default}
+
+/* CSV column-mapping modal */
+.modal{position:fixed;inset:0;z-index:80;background:rgba(20,14,50,.34);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{width:560px;max-width:94vw;max-height:88vh;overflow:auto;background:var(--panel);border-radius:18px;
+  box-shadow:0 24px 70px rgba(40,30,90,.30);padding:22px 24px}
+.modal-h{display:flex;align-items:center;font-size:17px;font-weight:800;letter-spacing:-.01em;margin-bottom:4px}
+.modal-x{margin-left:auto;cursor:pointer;color:var(--hint);font-style:normal;font-size:15px}
+.modal-x:hover{color:var(--text)}
+.modal-sub{font-size:12.5px;color:var(--muted);line-height:1.6;margin-bottom:16px}
+.maprows{display:flex;flex-direction:column;gap:9px}
+.maprow{display:flex;align-items:center;gap:12px}
+.mapf{flex:none;width:200px;font-size:13px;font-weight:600;color:var(--text)}
+.maprow select{flex:1;height:36px;border:1px solid var(--line);border-radius:10px;padding:0 10px;font-family:inherit;font-size:12.5px;background:var(--panel);color:var(--text)}
+.mapacts{display:flex;align-items:center;gap:14px;margin-top:18px}

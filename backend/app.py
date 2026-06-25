@@ -13,7 +13,8 @@ import hashlib
 import threading
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import json
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse, Response, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -158,7 +159,11 @@ def _to_int(s):
         return None
 
 
-def _parse_csv(content_bytes):
+def _parse_csv(content_bytes, mapping=None):
+    """Parse an uploaded CSV into lead dicts. `mapping` (system_field -> CSV header)
+    comes from the import column-mapping step; when present we use it exactly. With
+    no mapping we fall back to best-guess header matching (backward compatible).
+    The full original row is always kept in `data`."""
     text = content_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
     rows = list(reader)
@@ -172,21 +177,37 @@ def _parse_csv(content_bytes):
             continue
         r = r + [""] * (len(headers) - len(r))
         rowmap = {headers[i]: r[i] for i in range(len(headers))}
-        out.append({
-            "first_name": _pick(hl, r, "first name", "firstname", "first_name"),
-            "last_name": _pick(hl, r, "last name", "lastname", "last_name"),
-            "title": _pick(hl, r, "title", "jobtitle", "job title"),
-            "company": _pick(hl, r, "company", "companyname", "company name"),
-            "website": _pick(hl, r, "website", "url", "domain", "company website"),
-            "email": _pick(hl, r, "email"),
-            # extracted for fast filtering in the Database view
-            "employees": _to_int(_pick(hl, r, "# employees", "employees", "employee count",
-                                       "num employees", "company size", "headcount", "size")),
-            "country": _pick(hl, r, "country"),
-            "state": _pick(hl, r, "state", "region", "province"),
-            "seniority": _pick(hl, r, "seniority", "seniority level"),
-            "data": rowmap,
-        })
+        if mapping:
+            def mv(field):
+                col = mapping.get(field)
+                return str(rowmap.get(col, "") or "").strip() if col else ""
+            rec = {
+                "first_name": mv("first_name"), "last_name": mv("last_name"),
+                "title": mv("title"), "company": mv("company"),
+                "website": mv("website"), "email": mv("email"),
+                "employees": _to_int(mv("employees")),
+                "country": mv("country"), "state": mv("state"),
+                "seniority": mv("seniority"), "data": rowmap,
+            }
+            ind = mv("industry")
+            if ind:
+                rec["industry"] = ind   # CSV already carries our industry -> pre-classified
+            out.append(rec)
+        else:
+            out.append({
+                "first_name": _pick(hl, r, "first name", "firstname", "first_name"),
+                "last_name": _pick(hl, r, "last name", "lastname", "last_name"),
+                "title": _pick(hl, r, "title", "jobtitle", "job title"),
+                "company": _pick(hl, r, "company", "companyname", "company name"),
+                "website": _pick(hl, r, "website", "url", "domain", "company website"),
+                "email": _pick(hl, r, "email"),
+                "employees": _to_int(_pick(hl, r, "# employees", "employees", "employee count",
+                                           "num employees", "company size", "headcount", "size")),
+                "country": _pick(hl, r, "country"),
+                "state": _pick(hl, r, "state", "region", "province"),
+                "seniority": _pick(hl, r, "seniority", "seniority level"),
+                "data": rowmap,
+            })
     return out
 
 
@@ -1079,13 +1100,21 @@ def delete_list(list_id: int):
 
 
 @app.post("/api/lists/{list_id}/upload")
-async def upload(list_id: int, file: UploadFile = File(...)):
+async def upload(list_id: int, file: UploadFile = File(...), mapping: Optional[str] = Form(None)):
     s = SessionLocal()
     try:
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        rows = _parse_csv(await file.read())
+        m = None
+        if mapping:
+            try:
+                m = json.loads(mapping)
+                if not isinstance(m, dict):
+                    m = None
+            except Exception:
+                m = None
+        rows = _parse_csv(await file.read(), m)
         for r in rows:
             s.add(Lead(list_id=list_id, **r))
         s.commit()

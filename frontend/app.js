@@ -1130,9 +1130,77 @@ async function deleteWorkspace(){
   loadFormat();
 }
 
+// ---- CSV column mapping on import ----
+function parseCsvHeaderLine(line){
+  const out = []; let cur = "", q = false;
+  for(let i = 0; i < line.length; i++){
+    const c = line[i];
+    if(q){ if(c === '"'){ if(line[i + 1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
+    else { if(c === '"') q = true; else if(c === ',') { out.push(cur); cur = ""; } else cur += c; }
+  }
+  out.push(cur);
+  return out.map(h => h.trim()).filter((h, i, a) => h !== "" || i < a.length);
+}
+
+function readCsvHeaders(file){
+  return new Promise(resolve => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const text = String(fr.result || "");
+      const line = (text.split(/\r?\n/).find(l => l.trim()) || "");
+      resolve(line ? parseCsvHeaderLine(line) : []);
+    };
+    fr.onerror = () => resolve([]);
+    fr.readAsText(file.slice(0, 65536));
+  });
+}
+
+const MAP_FIELDS = [
+  ["first_name", "First name", ["first name", "firstname", "first_name"]],
+  ["last_name", "Last name", ["last name", "lastname", "last_name"]],
+  ["email", "Email", ["email"]],
+  ["title", "Title", ["title", "jobtitle", "job title"]],
+  ["company", "Company", ["company", "companyname", "company name"]],
+  ["website", "Website", ["website", "url", "domain", "company website"]],
+  ["employees", "# Employees", ["# employees", "employees", "employee count", "num employees", "company size", "headcount", "size"]],
+  ["country", "Country", ["country"]],
+  ["state", "State", ["state", "region", "province"]],
+  ["seniority", "Seniority", ["seniority", "seniority level"]],
+  ["industry", "Industry (already classified)", ["industry"]],
+];
+
+function openMapModal(headers){
+  const lowmap = {}; headers.forEach(h => { lowmap[h.toLowerCase()] = h; });
+  const guess = cands => { for(const c of cands){ if(lowmap[c]) return lowmap[c]; } return ""; };
+  const optList = sel => `<option value="">Don't import</option>` +
+    headers.map(h => `<option ${h === sel ? "selected" : ""}>${esc(h)}</option>`).join("");
+  let h = `<div class="modal-box"><div class="modal-h">Map your CSV columns<i class="modal-x" id="mapClose">✕</i></div>` +
+    `<div class="modal-sub">Pick which column in your file feeds each field. Leave as "Don't import" to skip. ` +
+    `If your file has our Industry column, map it and those leads import as already-classified.</div><div class="maprows">`;
+  MAP_FIELDS.forEach(([key, label, cands]) => {
+    h += `<div class="maprow"><span class="mapf">${label}</span><select data-mf="${key}">${optList(guess(cands))}</select></div>`;
+  });
+  h += `</div><div class="mapacts"><button class="run" id="mapFinish">Finish mapping & import</button>` +
+    `<span class="gtact" id="mapCancel">Cancel</span></div></div>`;
+  const m = $("mapModal"); m.innerHTML = h; m.hidden = false;
+  const close = () => { m.hidden = true; };
+  $("mapClose").onclick = $("mapCancel").onclick = close;
+  $("mapFinish").onclick = () => {
+    const mapping = {};
+    m.querySelectorAll("[data-mf]").forEach(s => { if(s.value) mapping[s.dataset.mf] = s.value; });
+    state._pendingMapping = mapping; close(); createList();
+  };
+}
+
 async function createList(){
   const name = ($("listName").value || "New list").trim();
   const file = $("fileInput").files[0];
+  // If a file is chosen, first show the column-mapping step (like Instantly/Bison).
+  if(file && !state._pendingMapping){
+    const headers = await readCsvHeaders(file);
+    if(headers && headers.length){ openMapModal(headers); return; }
+  }
+  const mapping = state._pendingMapping; state._pendingMapping = null;
   const { id } = await api("/api/lists", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, variable_set: state.variableSet }),
@@ -1140,6 +1208,7 @@ async function createList(){
   let count = 0;
   if(file){
     const fd = new FormData(); fd.append("file", file);
+    if(mapping) fd.append("mapping", JSON.stringify(mapping));
     const res = await api(`/api/lists/${id}/upload`, { method: "POST", body: fd });
     count = res.imported;
   }
