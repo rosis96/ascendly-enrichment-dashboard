@@ -20,8 +20,10 @@ from pydantic import BaseModel
 
 from db import SessionLocal, init_db
 from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule
+from sqlalchemy import or_, func
 import engine_adapter as ea
 from integrations import reoon
+from integrations import esp as esp_detect
 
 
 def _custom_specs(s, variable_set):
@@ -141,6 +143,21 @@ def _pick(headers_lower, row, *candidates):
     return ""
 
 
+def _to_int(s):
+    """Pull a whole number out of a messy cell ('1,200', '51-100', '~$45') -> int,
+    or None. For ranges, takes the first number."""
+    import re as _re
+    if s is None:
+        return None
+    m = _re.search(r"\d[\d,]*", str(s))
+    if not m:
+        return None
+    try:
+        return int(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
 def _parse_csv(content_bytes):
     text = content_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
@@ -162,6 +179,12 @@ def _parse_csv(content_bytes):
             "company": _pick(hl, r, "company", "companyname", "company name"),
             "website": _pick(hl, r, "website", "url", "domain", "company website"),
             "email": _pick(hl, r, "email"),
+            # extracted for fast filtering in the Database view
+            "employees": _to_int(_pick(hl, r, "# employees", "employees", "employee count",
+                                       "num employees", "company size", "headcount", "size")),
+            "country": _pick(hl, r, "country"),
+            "state": _pick(hl, r, "state", "region", "province"),
+            "seniority": _pick(hl, r, "seniority", "seniority level"),
             "data": rowmap,
         })
     return out
@@ -214,6 +237,10 @@ def _apply_agg(job, agg):
     elif job.kind == "titlecheck":
         job.cost = 0
         job.summary = {"tpass": agg.get("tpass", 0), "trej": agg.get("trej", 0)}
+    elif job.kind == "esp":
+        job.cost = 0
+        job.summary = {"microsoft": agg.get("microsoft", 0), "google": agg.get("google", 0),
+                       "other": agg.get("other", 0), "unknown": agg.get("unknown", 0)}
     else:
         job.cost = round(agg.get("cost", 0), 4)
         job.icp = agg.get("icp", 0)
@@ -410,6 +437,35 @@ def _classify_one(lead_id, tax):
 def _run_classify_job(job_id, target_ids, workers=None):
     from functools import partial
     _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()),
+                        _clamp_workers(workers, ENRICH_WORKERS))
+
+
+def _esp_one(lead_id):
+    # Brief DB holds: read email, release during the DNS lookup, then write.
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if not ld:
+            return None
+        email = ld.email
+    finally:
+        s.close()
+    label = esp_detect.detect(email)
+    s = SessionLocal()
+    try:
+        ld = s.get(Lead, lead_id)
+        if ld:
+            ld.esp = label
+            s.commit()
+    finally:
+        s.close()
+    bucket = {"Microsoft": "microsoft", "Google": "google", "Other": "other"}.get(label, "unknown")
+    return {bucket: 1}
+
+
+def _run_esp_job(job_id, target_ids, workers=None):
+    from functools import partial
+    _process_concurrent(job_id, target_ids, partial(_esp_one),
                         _clamp_workers(workers, ENRICH_WORKERS))
 
 
@@ -1056,6 +1112,7 @@ def get_list(list_id: int):
                 "email": ld.email, "status": ld.status, "result": ld.result or {},
                 "verify": ld.verify or {}, "email_status": ld.email_status or "",
                 "industry": ld.industry or "", "title_status": ld.title_status or "",
+                "esp": ld.esp or "",
             } for ld in leads],
             "job": None if not job else {
                 "id": job.id, "kind": job.kind or "enrich", "status": job.status,
@@ -1268,6 +1325,43 @@ class TitleBody(BaseModel):
     skip_done: bool = True
 
 
+class EspBody(BaseModel):
+    lead_ids: list[int] = []
+    limit: Optional[int] = None
+    skip_done: bool = True
+    workers: Optional[int] = None
+
+
+@app.post("/api/lists/{list_id}/esp-check")
+def esp_check_list(list_id: int, body: EspBody):
+    """Detect each lead's email provider (Microsoft/Google/Other) via MX records.
+    Free - DNS only, no API or credits."""
+    s = SessionLocal()
+    try:
+        l = s.get(LeadList, list_id)
+        if not l:
+            raise HTTPException(404, "List not found")
+        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        if body.lead_ids:
+            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
+        elif body.limit and body.limit > 0:
+            candidates = q.limit(body.limit).all()
+        else:
+            candidates = q.all()
+        targets = [ld for ld in candidates if not ld.esp] if body.skip_done else candidates
+        job = Job(list_id=list_id, kind="esp", status="queued" if targets else "done",
+                  total=len(targets), variable_set=l.variable_set, summary={})
+        s.add(job)
+        s.commit()
+        job_id = job.id
+        target_ids = [ld.id for ld in targets]
+    finally:
+        s.close()
+    if target_ids:
+        threading.Thread(target=_run_esp_job, args=(job_id, target_ids, body.workers), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids)}
+
+
 @app.post("/api/lists/{list_id}/title-check")
 def title_check_list(list_id: int, body: TitleBody):
     """Standalone title check: mark each lead title_status pass/rejected by the
@@ -1424,6 +1518,164 @@ def get_job(job_id: int):
                 "total": job.total, "done": job.done,
                 "icp": job.icp, "nonicp": job.nonicp, "rejected": job.rejected,
                 "summary": job.summary or {}, "cost": round(job.cost or 0, 4)}
+    finally:
+        s.close()
+
+
+# ------------------------- Database (Apollo-style) view -------------------------
+
+class DBFilters(BaseModel):
+    industry: Optional[str] = None
+    esp: Optional[str] = None
+    title_status: Optional[str] = None
+    email_status: Optional[str] = None
+    country: Optional[str] = None
+    seniority: Optional[str] = None
+    employees_min: Optional[int] = None
+    employees_max: Optional[int] = None
+    q: Optional[str] = None
+    page: int = 1
+    page_size: int = 50
+
+
+def _ws_list_ids(s, slug):
+    return [lid for (lid,) in s.query(LeadList.id).filter_by(variable_set=slug).all()]
+
+
+def _database_query(s, list_ids, f):
+    """A Lead query across all of a workspace's lists, with the active filters."""
+    if not list_ids:
+        return s.query(Lead).filter(Lead.id < 0)  # empty
+    q = s.query(Lead).filter(Lead.list_id.in_(list_ids))
+    if f.get("industry"):
+        q = q.filter(Lead.industry == f["industry"])
+    if f.get("esp"):
+        q = q.filter(Lead.esp == f["esp"])
+    if f.get("title_status"):
+        q = q.filter(Lead.title_status == f["title_status"])
+    if f.get("email_status"):
+        q = q.filter(Lead.email_status.ilike(f"%{f['email_status']}%"))
+    if f.get("country"):
+        q = q.filter(Lead.country.ilike(f"%{f['country']}%"))
+    if f.get("seniority"):
+        q = q.filter(Lead.seniority.ilike(f"%{f['seniority']}%"))
+    if f.get("employees_min") is not None:
+        q = q.filter(Lead.employees != None, Lead.employees >= f["employees_min"])  # noqa: E711
+    if f.get("employees_max") is not None:
+        q = q.filter(Lead.employees != None, Lead.employees <= f["employees_max"])  # noqa: E711
+    if f.get("q"):
+        like = f"%{f['q'].strip()}%"
+        q = q.filter(or_(Lead.first_name.ilike(like), Lead.last_name.ilike(like),
+                         Lead.company.ilike(like), Lead.email.ilike(like)))
+    return q
+
+
+def _db_lead(ld):
+    return {
+        "id": ld.id, "list_id": ld.list_id,
+        "first_name": ld.first_name or "", "last_name": ld.last_name or "",
+        "title": ld.title or "", "company": ld.company or "", "email": ld.email or "",
+        "website": ld.website or "", "industry": ld.industry or "", "esp": ld.esp or "",
+        "employees": ld.employees, "country": ld.country or "", "state": ld.state or "",
+        "seniority": ld.seniority or "", "email_status": ld.email_status or "",
+        "title_status": ld.title_status or "",
+    }
+
+
+@app.post("/api/workspaces/{slug}/database")
+def database_view(slug: str, body: DBFilters):
+    s = SessionLocal()
+    try:
+        list_ids = _ws_list_ids(s, slug)
+        grand_total = (s.query(func.count(Lead.id)).filter(Lead.list_id.in_(list_ids)).scalar()
+                       if list_ids else 0)
+        q = _database_query(s, list_ids, body.dict())
+        total = q.count()
+        size = max(1, min(body.page_size, 200))
+        page = max(1, body.page)
+        leads = q.order_by(Lead.id).offset((page - 1) * size).limit(size).all()
+
+        def facet(col):
+            rows = q.with_entities(col, func.count()).group_by(col).all()
+            return sorted([{"value": v, "count": c} for v, c in rows if v],
+                          key=lambda x: -x["count"])
+
+        return {
+            "grand_total": grand_total, "total": total, "page": page, "page_size": size,
+            "pages": (total + size - 1) // size if size else 1,
+            "facets": {"industry": facet(Lead.industry), "esp": facet(Lead.esp)},
+            "leads": [_db_lead(ld) for ld in leads],
+        }
+    finally:
+        s.close()
+
+
+@app.post("/api/workspaces/{slug}/database/export")
+def database_export(slug: str, body: DBFilters):
+    s = SessionLocal()
+    try:
+        list_ids = _ws_list_ids(s, slug)
+        leads = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
+        raw_cols = []
+        for ld in leads:
+            for k in (ld.data or {}).keys():
+                if k not in raw_cols:
+                    raw_cols.append(k)
+        extra = ["industry", "esp", "employees", "country", "state", "seniority",
+                 "title_status", "email_status"]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(raw_cols + extra)
+        for ld in leads:
+            row = [(ld.data or {}).get(c, "") for c in raw_cols]
+            row += [ld.industry or "", ld.esp or "", ld.employees if ld.employees is not None else "",
+                    ld.country or "", ld.state or "", ld.seniority or "",
+                    ld.title_status or "", ld.email_status or ""]
+            w.writerow(row)
+        return Response(content=buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}_database.csv"'})
+    finally:
+        s.close()
+
+
+class DBSendBody(DBFilters):
+    target: str
+    list_name: str = ""
+    lead_ids: list[int] = []
+
+
+@app.post("/api/workspaces/{slug}/database/send")
+def database_send(slug: str, body: DBSendBody):
+    """Copy a filtered (or explicitly selected) set of leads into a target
+    workspace as a new list, ready for verify + enrich. Source stays intact."""
+    s = SessionLocal()
+    try:
+        if not (s.query(Workspace).filter_by(slug=body.target).first() or ea.engine_set_exists(body.target)):
+            raise HTTPException(404, "Target workspace not found")
+        if body.lead_ids:
+            src = s.query(Lead).filter(Lead.id.in_(body.lead_ids)).all()
+        else:
+            list_ids = _ws_list_ids(s, slug)
+            src = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
+        if not src:
+            return {"copied": 0}
+        name = (body.list_name or "").strip() or f"From {slug} ({len(src)})"
+        nl = LeadList(name=name, variable_set=body.target)
+        s.add(nl)
+        s.commit()
+        nlid = nl.id
+        n = 0
+        for ld in src:
+            s.add(Lead(list_id=nlid, first_name=ld.first_name, last_name=ld.last_name,
+                       title=ld.title, company=ld.company, website=ld.website, email=ld.email,
+                       data=ld.data, industry=ld.industry, esp=ld.esp, employees=ld.employees,
+                       country=ld.country, state=ld.state, seniority=ld.seniority,
+                       title_status=ld.title_status, verify=ld.verify, email_status=ld.email_status))
+            n += 1
+            if n % 1000 == 0:
+                s.commit()
+        s.commit()
+        return {"copied": n, "list_id": nlid, "list_name": name, "target": body.target}
     finally:
         s.close()
 

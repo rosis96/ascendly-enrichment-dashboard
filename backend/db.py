@@ -33,7 +33,9 @@ def _migrate():
     insp = inspect(engine)
     wanted = {
         "leads": [("verify", "JSON"), ("email_status", "VARCHAR"), ("industry", "VARCHAR"),
-                  ("title_status", "VARCHAR")],
+                  ("title_status", "VARCHAR"), ("esp", "VARCHAR"),
+                  ("employees", "INTEGER"), ("country", "VARCHAR"), ("state", "VARCHAR"),
+                  ("seniority", "VARCHAR")],
         "jobs": [("kind", "VARCHAR"), ("summary", "JSON")],
     }
     with engine.begin() as conn:

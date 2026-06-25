@@ -1,5 +1,5 @@
 const API = "";
-const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤", check: "✓" };
+const ICONS = { collapse: "«", up: "↑", down: "↓", mail: "✉", play: "▶", file: "⊞", x: "✕", stop: "■", cols: "▦", tag: "▤", check: "✓", at: "@" };
 const VBUCKET = { valid: "p-green", risky: "p-amber", invalid: "p-red" };
 const ROW_CAP_STEP = 250;   // how many rows to render at once (windowing for smoothness)
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
@@ -174,11 +174,13 @@ function renderGrid(d){
   const grid = $("grid"); grid.hidden = leads.length === 0;
 
   // filter bar with counts
-  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0, tpass: 0, trej: 0 };
+  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0, tpass: 0, trej: 0,
+    espMicrosoft: 0, espGoogle: 0, espOther: 0, espUnknown: 0 };
   leads.forEach(l => {
     counts[leadCat(l)]++;
     if(l.title_status === "pass") counts.tpass++;
     else if(l.title_status === "rejected") counts.trej++;
+    if(l.esp) counts["esp" + l.esp] = (counts["esp" + l.esp] || 0) + 1;
   });
   const gt = $("gridtools");
   gt.hidden = leads.length === 0;
@@ -188,6 +190,9 @@ function renderGrid(d){
   if(counts.tpass || counts.trej){
     chips.push(["tpass", "Title ✓"], ["trej", "Title ✗"]);
   }
+  // ESP chips, present buckets only
+  [["espMicrosoft", "Microsoft"], ["espGoogle", "Google"], ["espOther", "ESP other"], ["espUnknown", "ESP ?"]]
+    .forEach(([k, label]) => { if(counts[k]) chips.push([k, label]); });
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
   const n = state.selectedLeads.size;
@@ -233,6 +238,7 @@ function renderGrid(d){
   if(state.filter === "all") view = leads.slice();
   else if(state.filter === "tpass") view = leads.filter(l => l.title_status === "pass");
   else if(state.filter === "trej") view = leads.filter(l => l.title_status === "rejected");
+  else if(state.filter.startsWith("esp")) view = leads.filter(l => ("esp" + (l.esp || "")) === state.filter);
   else view = leads.filter(l => leadCat(l) === state.filter);
   if(state.industryFilter) view = view.filter(l => (l.industry || "") === state.industryFilter);
   if(state.filter === "all"){
@@ -240,7 +246,7 @@ function renderGrid(d){
   }
   state.viewIds = view.map(l => l.id);
 
-  const cols = ["Email · Reoon", "Title gate", "ICP", "Industry", ...state.selected.map(pretty)];
+  const cols = ["Email · Reoon", "Title gate", "ICP", "Industry", "ESP", ...state.selected.map(pretty)];
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
     cols.map(c => `<th>${esc(c)}</th>`).join("") +
     `<th style="color:var(--acc-tx);cursor:pointer">+ enrichment</th>`;
@@ -265,6 +271,7 @@ function renderGrid(d){
     cells += `<td>${titleCell(ld, r)}</td>`;
     cells += `<td>${icpCell(ld, r)}</td>`;
     cells += `<td>${ld.industry ? `<span class="pill p-gray">${esc(ld.industry)}</span>` : `<span class="sk">—</span>`}</td>`;
+    cells += `<td>${espCell(ld)}</td>`;
     state.selected.forEach(k => { cells += `<td>${varCell(ld, r, k)}</td>`; });
     cells += `<td></td>`;
     tr.innerHTML = cells;
@@ -366,6 +373,14 @@ function titleCell(ld, r){
   if(r._title_gate === "rejected") return `<span class="pill p-red">✕ Rejected</span>`;
   return `<span class="pill p-green">Pass</span>`;
 }
+function espCell(ld){
+  const e = ld.esp;
+  if(!e) return `<span class="sk">—</span>`;
+  if(e === "Microsoft") return `<span class="pill p-acc">Microsoft</span>`;
+  if(e === "Google") return `<span class="pill p-green">Google</span>`;
+  if(e === "Other") return `<span class="pill p-gray">Other</span>`;
+  return `<span class="sk">unknown</span>`;
+}
 function icpCell(ld, r){
   if(!hasResult(ld)) return `<span class="sk">queued</span>`;
   if(r._status === "error") return `<span class="sk">site unreachable</span>`;
@@ -412,6 +427,11 @@ function renderBar(d){
     const tail = (j.status === "done" || j.status === "cancelled")
       ? ` · ${s.tpass||0} pass · ${s.trej||0} rejected` : "";
     stat.textContent = `${pre}${j.done} of ${j.total} title-checked${tail}`;
+  } else if(j.kind === "esp"){
+    cost.textContent = "free";
+    const tail = (j.status === "done" || j.status === "cancelled")
+      ? ` · ${s.microsoft||0} Microsoft · ${s.google||0} Google · ${s.other||0} other · ${s.unknown||0} unknown` : "";
+    stat.textContent = `${pre}${j.done} of ${j.total} ESP-checked${tail}`;
   } else {
     cost.textContent = "$" + (j.cost || 0).toFixed(2);
     const tail = (j.status === "done" || j.status === "cancelled")
@@ -445,6 +465,8 @@ async function startJob(kind){
     eligible = candidates.filter(l => !l.industry);
   } else if(kind === "titlecheck"){
     eligible = candidates.filter(l => !l.title_status);
+  } else if(kind === "esp"){
+    eligible = candidates.filter(l => !l.esp);
   } else if(kind === "pipeline"){
     eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
   } else {
@@ -458,6 +480,9 @@ async function startJob(kind){
     if(kind === "titlecheck"){
       if(!confirm("All leads in scope are already title-checked. Re-check them?")) return;
       skipDone = false; eligible = candidates;
+    } else if(kind === "esp"){
+      if(!confirm("All leads in scope already have an ESP result. Re-check them?")) return;
+      skipDone = false; eligible = candidates;
     } else {
       if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
       skipDone = false;
@@ -467,14 +492,14 @@ async function startJob(kind){
   }
   const count = eligible.length;
 
-  const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "pipeline" ? "verify + enrich" : "enrich")));
-  // title check is free + instant, so no credit confirmation
-  if(kind !== "titlecheck"){
+  const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "esp" ? "ESP-check" : (kind === "pipeline" ? "verify + enrich" : "enrich"))));
+  // title check and ESP are free, so no credit confirmation
+  if(kind !== "titlecheck" && kind !== "esp"){
     const credit = kind === "verify" ? "Reoon" : (kind === "classify" ? "a little OpenAI" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI"));
     if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
   }
 
-  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "pipeline" ? "run-pipeline" : "run")));
+  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "esp" ? "esp-check" : (kind === "pipeline" ? "run-pipeline" : "run"))));
   const body = Object.assign({ skip_done: skipDone }, scope);
   if(kind === "enrich" || kind === "pipeline") body.enrichments = state.selected;
   if(kind === "enrich") body.only_safe = onlySafe;
@@ -493,6 +518,7 @@ const verify = () => startJob("verify");
 const pipeline = () => startJob("pipeline");
 const classify = () => startJob("classify");
 const titleCheck = () => startJob("titlecheck");
+const espCheck = () => startJob("esp");
 
 async function stop(){
   if(!state.jobId) return;
@@ -534,6 +560,152 @@ async function loadBalance(){
   }catch(e){}
 }
 
+// ---------------- Database (Apollo-style) view ----------------
+function dbState(){
+  if(!state.db) state.db = { filters: {}, page: 1, pageSize: 50, selected: new Set(), tax: null, data: null };
+  return state.db;
+}
+
+async function loadDatabase(){
+  showView("database");
+  $("viewTitle").textContent = "Database";
+  $("viewSub").textContent = `All leads in ${state.variableSet} — filter, then send to a workspace`;
+  const db = dbState();
+  if(!db.tax){ try{ db.tax = await api("/api/taxonomy"); }catch(e){ db.tax = []; } }
+  await fetchDatabase();
+}
+
+async function fetchDatabase(){
+  const db = dbState();
+  const body = Object.assign({}, db.filters, { page: db.page, page_size: db.pageSize });
+  try{
+    db.data = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/database`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  }catch(e){ $("databaseView").innerHTML = `<div class="empty">Couldn't load the database.</div>`; return; }
+  renderDatabase();
+}
+
+function renderDatabase(){
+  const db = dbState(), d = db.data, f = db.filters;
+  if(!d) return;
+  const opt = (cur, pairs) => pairs.map(([v, lbl]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(lbl)}</option>`).join("");
+  const indPairs = [["", "All industries"]].concat((db.tax || []).map(x => [x, x]));
+  const espPairs = [["", "Any ESP"], ["Microsoft", "Microsoft"], ["Google", "Google"], ["Other", "Other"], ["Unknown", "Unknown"]];
+  const titlePairs = [["", "Any title"], ["pass", "Title ✓"], ["rejected", "Title ✗"]];
+  let h = `<div class="dbfilters">
+    <select id="dbInd">${opt(f.industry || "", indPairs)}</select>
+    <select id="dbEsp">${opt(f.esp || "", espPairs)}</select>
+    <select id="dbTitle">${opt(f.title_status || "", titlePairs)}</select>
+    <input id="dbEmpMin" type="number" min="0" placeholder="min emp" value="${f.employees_min ?? ""}" />
+    <input id="dbEmpMax" type="number" min="0" placeholder="max emp" value="${f.employees_max ?? ""}" />
+    <input id="dbCountry" placeholder="Country" value="${esc(f.country || "")}" />
+    <input id="dbSeniority" placeholder="Seniority" value="${esc(f.seniority || "")}" />
+    <input id="dbSearch" placeholder="Search name / company / email" value="${esc(f.q || "")}" />
+    <button class="run" id="dbApply">Apply</button>
+    <span class="gtact" id="dbClear">Clear</span>
+  </div>`;
+  h += `<div class="dbbar">
+    <span class="dbcount"><b>${d.total.toLocaleString()}</b> match${d.total === 1 ? "" : "es"} · ${d.grand_total.toLocaleString()} total in workspace</span>
+    <span class="selinfo" id="dbSelInfo"></span>
+    <span class="gtact" id="dbExport">Export ${d.total.toLocaleString()}</span>
+    <span class="gtact" id="dbSendBtn">Send to workspace →</span>
+  </div>`;
+  h += `<div class="dbsend" id="dbSendPanel" hidden></div>`;
+  const cols = ["Name", "Title", "Company", "Email", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
+  h += `<div class="dbtablewrap"><table class="dbtable"><thead><tr><th class="cbx"><input type="checkbox" id="dbSelAll"></th>` +
+    cols.map(c => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
+  (d.leads || []).forEach(l => {
+    const ck = db.selected.has(l.id) ? "checked" : "";
+    h += `<tr><td class="cbx"><input type="checkbox" class="dbcb" data-id="${l.id}" ${ck}></td>` +
+      `<td><b>${esc(l.first_name)} ${esc(l.last_name)}</b></td><td>${esc(l.title)}</td>` +
+      `<td>${esc(l.company)}</td><td>${esc(l.email)}</td>` +
+      `<td>${l.industry ? `<span class="pill p-gray">${esc(l.industry)}</span>` : `<span class="sk">—</span>`}</td>` +
+      `<td>${espCell(l)}</td><td>${l.employees ?? ""}</td><td>${esc(l.country)}</td>` +
+      `<td>${esc(l.seniority)}</td><td>${esc(l.email_status)}</td></tr>`;
+  });
+  h += `</tbody></table></div>`;
+  h += `<div class="dbpage">
+    <button class="gbtn" id="dbPrev" ${d.page <= 1 ? "disabled" : ""}>‹ Prev</button>
+    <span>Page ${d.page} of ${Math.max(1, d.pages)}</span>
+    <button class="gbtn" id="dbNext" ${d.page >= d.pages ? "disabled" : ""}>Next ›</button>
+    <select id="dbPageSize">${[50, 100, 200].map(n => `<option ${db.pageSize === n ? "selected" : ""}>${n}</option>`).join("")}</select>
+  </div>`;
+  $("databaseView").innerHTML = h;
+  wireDatabase();
+}
+
+function wireDatabase(){
+  const db = dbState();
+  const num = id => { const n = parseInt(($(id) || {}).value, 10); return Number.isFinite(n) ? n : null; };
+  const txt = id => { const e = $(id); return e && e.value.trim() ? e.value.trim() : null; };
+  const readFilters = () => {
+    db.filters = {
+      industry: $("dbInd").value || null, esp: $("dbEsp").value || null,
+      title_status: $("dbTitle").value || null,
+      employees_min: num("dbEmpMin"), employees_max: num("dbEmpMax"),
+      country: txt("dbCountry"), seniority: txt("dbSeniority"), q: txt("dbSearch"),
+    };
+  };
+  $("dbApply").onclick = () => { readFilters(); db.page = 1; fetchDatabase(); };
+  $("dbClear").onclick = () => { db.filters = {}; db.page = 1; db.selected.clear(); fetchDatabase(); };
+  $("dbSearch").onkeydown = e => { if(e.key === "Enter"){ readFilters(); db.page = 1; fetchDatabase(); } };
+  $("dbPrev").onclick = () => { if(db.page > 1){ db.page--; fetchDatabase(); } };
+  $("dbNext").onclick = () => { db.page++; fetchDatabase(); };
+  $("dbPageSize").onchange = e => { db.pageSize = parseInt(e.target.value, 10); db.page = 1; fetchDatabase(); };
+  const selAll = $("dbSelAll");
+  selAll.onchange = () => { (db.data.leads || []).forEach(l => selAll.checked ? db.selected.add(l.id) : db.selected.delete(l.id)); renderDatabase(); };
+  document.querySelectorAll(".dbcb").forEach(cb => cb.onchange = () => {
+    const id = +cb.dataset.id; cb.checked ? db.selected.add(id) : db.selected.delete(id); updateDbSel();
+  });
+  $("dbExport").onclick = dbExport;
+  $("dbSendBtn").onclick = dbSend;
+  updateDbSel();
+}
+
+function updateDbSel(){
+  const el = $("dbSelInfo"); if(el) el.textContent = dbState().selected.size ? `${dbState().selected.size} selected` : "";
+}
+
+async function dbExport(){
+  const db = dbState();
+  try{
+    const r = await fetch(`/api/workspaces/${encodeURIComponent(state.variableSet)}/database/export`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(db.filters) });
+    if(r.status === 401){ window.location = "/login"; return; }
+    if(!r.ok){ alert("Export failed"); return; }
+    const blob = await r.blob(), url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${state.variableSet}_database.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }catch(e){ alert("Export failed"); }
+}
+
+async function dbSend(){
+  const db = dbState(), panel = $("dbSendPanel");
+  if(!panel.hidden){ panel.hidden = true; return; }
+  let wss = []; try{ wss = await api("/api/workspaces"); }catch(e){}
+  const targets = wss.filter(w => w.key !== state.variableSet);
+  const what = db.selected.size ? `${db.selected.size} selected` : `${(db.data ? db.data.total : 0).toLocaleString()} filtered`;
+  panel.innerHTML = `Send <b>${what}</b> to ` +
+    `<select id="dbTarget">${targets.map(w => `<option value="${esc(w.key)}">${esc(w.name)}</option>`).join("")}</select> ` +
+    `<input id="dbListName" placeholder="New list name (optional)" /> ` +
+    `<button class="run" id="dbSendGo">Send</button> <span class="gtact" id="dbSendCancel">Cancel</span> <span id="dbSendMsg" class="muted"></span>`;
+  panel.hidden = false;
+  $("dbSendCancel").onclick = () => { panel.hidden = true; };
+  $("dbSendGo").onclick = async () => {
+    const target = $("dbTarget").value; if(!target) return;
+    const body = Object.assign({}, db.filters, { target, list_name: $("dbListName").value.trim() });
+    if(db.selected.size) body.lead_ids = [...db.selected];
+    $("dbSendGo").disabled = true; $("dbSendMsg").textContent = "Sending…";
+    try{
+      const r = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/database/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      $("dbSendMsg").textContent = `Copied ${r.copied} to ${r.target}. Switch to that workspace to verify/enrich.`;
+      db.selected.clear(); updateDbSel();
+    }catch(e){ $("dbSendMsg").textContent = "Send failed."; }
+    $("dbSendGo").disabled = false;
+  };
+}
+
 function showView(name){
   state.view = name;
   $("gridWrap").hidden = name !== "table";
@@ -541,6 +713,7 @@ function showView(name){
   if(name !== "table") $("gridtools").hidden = true;
   $("formatView").hidden = name !== "format";
   const rv = $("rulesView"); if(rv) rv.hidden = name !== "rules";
+  const dv = $("databaseView"); if(dv) dv.hidden = name !== "database";
   $("settingsView").hidden = name !== "settings";
   updateRunUI();
 }
@@ -1011,6 +1184,7 @@ function init(){
   $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
   $("formatBtn").onclick = loadFormat;
   $("rulesBtn").onclick = loadRules;
+  $("databaseBtn").onclick = loadDatabase;
   const lo = $("logoutBtn");
   if(lo) lo.onclick = async () => {
     if(!confirm("Log out of the workspace?")) return;
@@ -1022,6 +1196,7 @@ function init(){
   $("runBtn").onclick = $("runBtn2").onclick = run;
   $("verifyBtn").onclick = verify;
   $("titleBtn").onclick = titleCheck;
+  $("espBtn").onclick = espCheck;
   $("classifyBtn").onclick = classify;
   $("pipelineBtn").onclick = pipeline;
   $("exportBtn").onclick = $("exportNav").onclick = exportCsv;

@@ -31,6 +31,12 @@ class Lead(Base):
     email_status = Column(String, default="")  # reoon status label (safe/catch_all/invalid/...)
     industry = Column(String, default="")    # umbrella industry from website classification
     title_status = Column(String, default="")  # standalone title check: pass | rejected
+    esp = Column(String, default="")         # email provider: Microsoft | Google | Other | Unknown
+    # extracted from the imported row for fast faceted filtering in the Database view
+    employees = Column(Integer, index=True)  # numeric employee count (nullable)
+    country = Column(String, default="", index=True)
+    state = Column(String, default="")
+    seniority = Column(String, default="", index=True)
     status = Column(String, default="pending")  # pending | running | done | skipped
     list = relationship("LeadList", back_populates="leads")
 
