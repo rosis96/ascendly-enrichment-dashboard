@@ -229,6 +229,7 @@ tbody tr:hover{background:var(--surface)}
 
 /* CSV column-mapping modal */
 .modal{position:fixed;inset:0;z-index:80;background:rgba(20,14,50,.34);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal[hidden]{display:none}
 .modal-box{width:560px;max-width:94vw;max-height:88vh;overflow:auto;background:var(--panel);border-radius:18px;
   box-shadow:0 24px 70px rgba(40,30,90,.30);padding:22px 24px}
 .modal-h{display:flex;align-items:center;font-size:17px;font-weight:800;letter-spacing:-.01em;margin-bottom:4px}
