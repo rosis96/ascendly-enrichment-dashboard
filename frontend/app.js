@@ -102,10 +102,29 @@ async function clearResults(ids){
   await refresh();
 }
 
+function deleteListPopup(name){
+  return new Promise(resolve => {
+    const m = $("mapModal");
+    m.innerHTML = `<div class="modal-box" style="width:460px">` +
+      `<div class="modal-h">Delete "${esc(name)}"?<i class="modal-x" id="delX">✕</i></div>` +
+      `<div class="modal-sub">What should happen to this list's leads?</div>` +
+      `<div class="delacts">` +
+      `<button class="gbtn" id="delKeep">Keep the leads — move them to "Saved leads" and remove only this list</button>` +
+      `<button class="run stop" id="delBoth">Delete the list AND its leads from the database</button>` +
+      `<span class="gtact" id="delCancel">Cancel</span></div></div>`;
+    m.hidden = false;
+    const done = v => { m.hidden = true; resolve(v); };
+    $("delX").onclick = $("delCancel").onclick = () => done("cancel");
+    $("delKeep").onclick = () => done("keep");
+    $("delBoth").onclick = () => done("both");
+  });
+}
+
 async function deleteList(id, name){
-  if(!confirm(`Delete list "${name}" and all its leads? This can't be undone.`)) return;
+  const choice = await deleteListPopup(name);
+  if(choice === "cancel") return;
   try{
-    await api("/api/lists/" + id, { method: "DELETE" });
+    await api("/api/lists/" + id + (choice === "keep" ? "?keep=1" : ""), { method: "DELETE" });
   }catch(e){
     alert("Couldn't delete the list: " + e.message);
     return;

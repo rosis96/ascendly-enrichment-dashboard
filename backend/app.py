@@ -1135,12 +1135,34 @@ def delete_leads(list_id: int, ids: str):
         s.close()
 
 
+SAVED_LEADS_NAME = "Saved leads"
+
+
 @app.delete("/api/lists/{list_id}")
-def delete_list(list_id: int):
+def delete_list(list_id: int, keep: int = 0):
+    """Delete a list. keep=1 -> remove the list but KEEP its leads in the workspace
+    database (they move into a 'Saved leads' list). keep=0 -> delete leads too."""
     s = SessionLocal()
     try:
-        # Bulk deletes (one SQL statement each) — fast even for thousands of leads
-        # over a remote Postgres, instead of per-row ORM cascade.
+        l = s.get(LeadList, list_id)
+        if not l:
+            return {"ok": True}
+        if keep:
+            # move this list's leads into the workspace's "Saved leads" list
+            saved = (s.query(LeadList)
+                     .filter_by(variable_set=l.variable_set, name=SAVED_LEADS_NAME).first())
+            if not saved:
+                saved = LeadList(name=SAVED_LEADS_NAME, variable_set=l.variable_set)
+                s.add(saved)
+                s.commit()
+            if saved.id != list_id:
+                s.query(Lead).filter_by(list_id=list_id).update(
+                    {Lead.list_id: saved.id}, synchronize_session=False)
+                s.query(Job).filter_by(list_id=list_id).delete(synchronize_session=False)
+                s.query(LeadList).filter_by(id=list_id).delete(synchronize_session=False)
+                s.commit()
+            return {"ok": True, "kept": True, "saved_list": saved.name}
+        # full delete: bulk statements, fast even for thousands of leads
         s.query(Job).filter_by(list_id=list_id).delete(synchronize_session=False)
         s.query(Lead).filter_by(list_id=list_id).delete(synchronize_session=False)
         s.query(LeadList).filter_by(id=list_id).delete(synchronize_session=False)

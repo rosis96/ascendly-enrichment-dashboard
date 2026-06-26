@@ -247,3 +247,7 @@ tbody tr:hover{background:var(--surface)}
 
 .dblink{cursor:pointer;color:var(--acc-tx)}
 .dblink:hover{text-decoration:underline}
+
+.delacts{display:flex;flex-direction:column;align-items:stretch;gap:9px;margin-top:16px}
+.delacts .gbtn,.delacts .run{justify-content:center;padding:11px}
+.delacts .gtact{text-align:center}
