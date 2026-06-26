@@ -611,17 +611,21 @@ function renderDatabase(){
     <span class="gtact" id="dbSendBtn">Send to workspace →</span>
   </div>`;
   h += `<div class="dbsend" id="dbSendPanel" hidden></div>`;
-  const cols = ["Name", "Title", "Company", "Email", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
+  const fixedCols = ["Name", "Title", "Company", "Email", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
+  const dataCols = d.data_columns || [];
   h += `<div class="dbtablewrap"><table class="dbtable"><thead><tr><th class="cbx"><input type="checkbox" id="dbSelAll"></th>` +
-    cols.map(c => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
+    fixedCols.map(c => `<th>${c}</th>`).join("") +
+    dataCols.map(c => `<th>${esc(c)}</th>`).join("") + `</tr></thead><tbody>`;
   (d.leads || []).forEach(l => {
     const ck = db.selected.has(l.id) ? "checked" : "";
+    const data = l.data || {};
     h += `<tr><td class="cbx"><input type="checkbox" class="dbcb" data-id="${l.id}" ${ck}></td>` +
-      `<td><b>${esc(l.first_name)} ${esc(l.last_name)}</b></td><td>${esc(l.title)}</td>` +
-      `<td>${esc(l.company)}</td><td>${esc(l.email)}</td>` +
+      `<td><b class="dblink" data-id="${l.id}">${esc(l.first_name)} ${esc(l.last_name)}</b></td><td>${esc(l.title)}</td>` +
+      `<td>${esc(l.company)}</td><td><span class="dblink" data-id="${l.id}">${esc(l.email)}</span></td>` +
       `<td>${l.industry ? `<span class="pill p-gray">${esc(l.industry)}</span>` : `<span class="sk">—</span>`}</td>` +
       `<td>${espCell(l)}</td><td>${l.employees ?? ""}</td><td>${esc(l.country)}</td>` +
-      `<td>${esc(l.seniority)}</td><td>${esc(l.email_status)}</td></tr>`;
+      `<td>${esc(l.seniority)}</td><td>${esc(l.email_status)}</td>` +
+      dataCols.map(c => `<td>${esc(String(data[c] ?? ""))}</td>`).join("") + `</tr>`;
   });
   h += `</tbody></table></div>`;
   h += `<div class="dbpage">
@@ -659,7 +663,28 @@ function wireDatabase(){
   });
   $("dbExport").onclick = dbExport;
   $("dbSendBtn").onclick = dbSend;
+  const byId = {}; (db.data.leads || []).forEach(l => { byId[l.id] = l; });
+  document.querySelectorAll(".dblink").forEach(x => x.onclick = () => openDbDetail(byId[x.dataset.id]));
   updateDbSel();
+}
+
+function openDbDetail(l){
+  if(!l) return;
+  const fixed = [["Name", `${l.first_name || ""} ${l.last_name || ""}`.trim()], ["Title", l.title],
+    ["Company", l.company], ["Email", l.email], ["Website", l.website], ["Industry", l.industry],
+    ["ESP", l.esp], ["Employees", l.employees], ["Country", l.country], ["State", l.state],
+    ["Seniority", l.seniority], ["Email status", l.email_status], ["Title check", l.title_status]];
+  let h = `<div class="dtop"><div><div class="dname">${esc(`${l.first_name || ""} ${l.last_name || ""}`.trim())}</div>` +
+    `<div class="dsub">${esc(l.company || "")}${l.title ? " · " + esc(l.title) : ""}</div></div><i class="dclose" id="dbDetClose">✕</i></div>`;
+  const field = (k, v) => {
+    if(v === undefined || v === null || v === "") return "";
+    return `<div class="dfield"><div class="dk">${esc(k)}</div><div class="dval">${esc(String(v))}</div></div>`;
+  };
+  fixed.forEach(([k, v]) => { h += field(k, v); });
+  const data = l.data || {};
+  Object.keys(data).forEach(k => { h += field(k, data[k]); });
+  const d = $("detail"); d.innerHTML = h; d.hidden = false;
+  $("dbDetClose").onclick = () => { d.hidden = true; };
 }
 
 function updateDbSel(){

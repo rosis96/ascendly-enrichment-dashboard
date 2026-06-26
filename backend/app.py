@@ -1677,6 +1677,7 @@ def _db_lead(ld):
         "employees": ld.employees, "country": ld.country or "", "state": ld.state or "",
         "seniority": ld.seniority or "", "email_status": ld.email_status or "",
         "title_status": ld.title_status or "",
+        "data": ld.data or {},   # full original row, for all-columns view + detail drawer
     }
 
 
@@ -1698,10 +1699,18 @@ def database_view(slug: str, body: DBFilters):
             return sorted([{"value": v, "count": c} for v, c in rows if v],
                           key=lambda x: -x["count"])
 
+        # union of the raw column names on this page, so the grid can show every
+        # imported field (LinkedIn, Company Address, custom fields, etc.)
+        data_columns = []
+        for ld in leads:
+            for k in (ld.data or {}).keys():
+                if k not in data_columns:
+                    data_columns.append(k)
         return {
             "grand_total": grand_total, "total": total, "page": page, "page_size": size,
             "pages": (total + size - 1) // size if size else 1,
             "facets": {"industry": facet(Lead.industry), "esp": facet(Lead.esp)},
+            "data_columns": data_columns,
             "leads": [_db_lead(ld) for ld in leads],
         }
     finally:

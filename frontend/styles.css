@@ -244,3 +244,6 @@ tbody tr:hover{background:var(--surface)}
 
 .cf-del{color:var(--hint);cursor:pointer;font-style:normal;font-size:10px;margin-left:4px}
 .cf-del:hover{color:var(--red-tx)}
+
+.dblink{cursor:pointer;color:var(--acc-tx)}
+.dblink:hover{text-decoration:underline}
