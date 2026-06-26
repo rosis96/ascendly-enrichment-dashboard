@@ -162,6 +162,28 @@ def _to_int(s):
 _FIXED_MAP_FIELDS = {"first_name", "last_name", "email", "title", "company", "website",
                      "employees", "country", "state", "seniority", "industry"}
 
+# Standard columns emitted first in every export (the mapped fields live in Lead
+# columns now, not in `data`), then the custom `data` columns, then enrichment.
+_STD_EXPORT = [("First Name", "first_name"), ("Last Name", "last_name"), ("Title", "title"),
+               ("Company", "company"), ("Website", "website"), ("Email", "email"),
+               ("Industry", "industry"), ("ESP", "esp"), ("Employees", "employees"),
+               ("Country", "country"), ("State", "state"), ("Seniority", "seniority"),
+               ("Email Status", "email_status")]
+# raw `data` keys that duplicate a standard column are skipped (mostly affects
+# older leads imported before mapping, whose data held the whole row).
+_STD_RAW_SKIP = {"first name", "last name", "first_name", "last_name", "firstname", "lastname",
+                 "title", "jobtitle", "job title", "company", "companyname", "company name",
+                 "website", "url", "domain", "company website", "email", "industry",
+                 "# employees", "employees", "country", "state", "seniority", "esp", "status"}
+
+
+def _std_export_row(ld):
+    out = []
+    for _, attr in _STD_EXPORT:
+        v = getattr(ld, attr, "")
+        out.append("" if v is None else v)
+    return out
+
 
 def _parse_csv(content_bytes, mapping=None):
     """Parse an uploaded CSV into lead dicts. `mapping` (system_field -> CSV header)
@@ -185,22 +207,24 @@ def _parse_csv(content_bytes, mapping=None):
             def mv(field):
                 col = mapping.get(field)
                 return str(rowmap.get(col, "") or "").strip() if col else ""
+            # Store ONLY the columns the user mapped. Standard fields go to Lead
+            # columns; any other mapped (custom) field goes in data under its name.
+            # Unmapped CSV columns are dropped entirely.
+            data = {}
+            for mk, col in mapping.items():
+                if mk not in _FIXED_MAP_FIELDS and col:
+                    data[mk] = str(rowmap.get(col, "") or "").strip()
             rec = {
                 "first_name": mv("first_name"), "last_name": mv("last_name"),
                 "title": mv("title"), "company": mv("company"),
                 "website": mv("website"), "email": mv("email"),
                 "employees": _to_int(mv("employees")),
                 "country": mv("country"), "state": mv("state"),
-                "seniority": mv("seniority"), "data": rowmap,
+                "seniority": mv("seniority"), "data": data,
             }
             ind = mv("industry")
             if ind:
                 rec["industry"] = ind   # CSV already carries our industry -> pre-classified
-            # any non-fixed mapping key is a user-added custom field -> store in data
-            # under its canonical name so it's consistent across files & exports.
-            for mk, col in mapping.items():
-                if mk not in _FIXED_MAP_FIELDS and col:
-                    rowmap[mk] = str(rowmap.get(col, "") or "").strip()
             out.append(rec)
         else:
             out.append({
@@ -1547,20 +1571,19 @@ def _do_export(list_id, wanted):
         cset = set(custom_names)
         out_keys = [k for k in ea.output_keys_for(_base_of(s, l.variable_set))
                     if k not in hidden and k not in cset] + custom_names
-        # raw columns first (union across rows), then verification, then enrichment
+        # standard fields first, then custom data columns, then enrichment
         raw_cols = []
         for ld in leads:
             for k in (ld.data or {}).keys():
-                if k not in raw_cols:
+                if k not in raw_cols and k.lower() not in _STD_RAW_SKIP:
                     raw_cols.append(k)
-        header = raw_cols + ["industry", "email_status", "email_safe_to_send"] + out_keys
+        header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Safe to send"] + out_keys
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(header)
         for ld in leads:
-            row = [(ld.data or {}).get(c, "") for c in raw_cols]
-            row.append(ld.industry or "")
-            row.append(ld.email_status or "")
+            row = _std_export_row(ld)
+            row += [(ld.data or {}).get(c, "") for c in raw_cols]
             row.append((ld.verify or {}).get("is_safe_to_send", ""))
             row += [(ld.result or {}).get(k, "") for k in out_keys]
             w.writerow(row)
@@ -1726,18 +1749,16 @@ def database_export(slug: str, body: DBFilters):
         raw_cols = []
         for ld in leads:
             for k in (ld.data or {}).keys():
-                if k not in raw_cols:
+                if k not in raw_cols and k.lower() not in _STD_RAW_SKIP:
                     raw_cols.append(k)
-        extra = ["industry", "esp", "employees", "country", "state", "seniority",
-                 "title_status", "email_status"]
+        header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Title Check", "Safe to send"]
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(raw_cols + extra)
+        w.writerow(header)
         for ld in leads:
-            row = [(ld.data or {}).get(c, "") for c in raw_cols]
-            row += [ld.industry or "", ld.esp or "", ld.employees if ld.employees is not None else "",
-                    ld.country or "", ld.state or "", ld.seniority or "",
-                    ld.title_status or "", ld.email_status or ""]
+            row = _std_export_row(ld)
+            row += [(ld.data or {}).get(c, "") for c in raw_cols]
+            row += [ld.title_status or "", (ld.verify or {}).get("is_safe_to_send", "")]
             w.writerow(row)
         return Response(content=buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{slug}_database.csv"'})
