@@ -414,7 +414,10 @@ DEFAULT_TAXONOMY = [
     "Renewable Energy & Solar", "Healthcare & Life Sciences",
     "E-commerce & Retail", "Real Estate & Property", "Construction & Engineering",
     "Professional Services (Legal/Accounting/HR)", "Manufacturing & Industrial",
-    "Media & Entertainment", "Other B2B", "Other B2C",
+    "Media & Entertainment", "Education & EdTech", "Nonprofit & NGO",
+    "Government & Public Sector", "Hospitality & Travel", "Logistics & Supply Chain",
+    "Energy & Utilities", "Telecommunications", "Automotive & Transportation",
+    "Other B2B", "Other B2C",
 ]
 
 

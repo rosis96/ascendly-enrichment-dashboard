@@ -255,3 +255,5 @@ tbody tr:hover{background:var(--surface)}
 .dbselnotice{background:var(--acc-bg);color:var(--acc-tx);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:12.5px}
 .dbselnotice b{font-weight:700}
 .dbselnotice .gtact{color:var(--acc-tx);text-decoration:underline}
+
+[hidden]{display:none!important}

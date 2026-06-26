@@ -361,7 +361,7 @@ function updateScope(){
 function updateRunUI(){
   const t = state.view === "table";
   const running = state.running;
-  ["varsBtn", "classifyBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn"].forEach(id => {
+  ["varsBtn", "classifyBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn", "titleBtn", "espBtn"].forEach(id => {
     const e = $(id); if(e) e.style.display = (t && !running) ? "" : "none";
   });
   const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
@@ -794,7 +794,11 @@ function showView(name){
   state.view = name;
   $("gridWrap").hidden = name !== "table";
   $("runbar").hidden = name !== "table";
-  if(name !== "table") $("gridtools").hidden = true;
+  if(name !== "table"){
+    $("gridtools").hidden = true;
+    $("importPanel").hidden = true;
+    $("enrichPanel").hidden = true;
+  }
   $("formatView").hidden = name !== "format";
   const rv = $("rulesView"); if(rv) rv.hidden = name !== "rules";
   const dv = $("databaseView"); if(dv) dv.hidden = name !== "database";
