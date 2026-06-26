@@ -254,6 +254,9 @@ MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))
 # run with very high concurrency. Separate, higher ceiling just for classify.
 MAX_CLASSIFY_WORKERS = int(os.getenv("MAX_CLASSIFY_WORKERS", "500"))
 CLASSIFY_WORKERS = int(os.getenv("CLASSIFY_WORKERS", "100"))
+# Most leads the per-list grid endpoint will load at once (huge lists are browsed
+# via the paginated Database view). Prevents OOM on 100k+ lists.
+LIST_LEAD_CAP = int(os.getenv("LIST_LEAD_CAP", "1000"))
 
 
 def _clamp_workers(n, default, maximum=None):
@@ -323,11 +326,16 @@ def _write_job(job_id, done, agg, status=None):
 
 
 def _process_concurrent(job_id, target_ids, worker_fn, workers):
-    """Run worker_fn(lead_id) across a thread pool. Each worker uses its own DB
-    session and returns a dict of counter increments. Cancel-aware and resumable."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """Run worker_fn(lead_id) across a thread pool. Submits only a bounded WINDOW
+    of tasks at a time (topping up as each finishes) so a huge list (100k+) can't
+    blow up memory by queuing every future at once. Progress is written on a timer,
+    not per-lead, to avoid hammering the DB. Cancel-aware and resumable."""
+    from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
     _write_job(job_id, 0, {}, status="running")
     agg, done = {}, 0
+    workers = max(1, workers)
+    window = workers * 3          # max futures in flight at once
+    last_write = 0.0
 
     def task(lid):
         if job_id in CANCEL:
@@ -338,15 +346,30 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
             return {"_error": 1}
 
     try:
-        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-            futures = [ex.submit(task, lid) for lid in target_ids]
-            for fut in as_completed(futures):
-                r = fut.result()
-                done += 1
-                if r:
-                    for k, v in r.items():
-                        agg[k] = agg.get(k, 0) + v
-                _write_job(job_id, done, agg)  # live progress on every lead
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            it = iter(target_ids)
+            inflight = set()
+            for _ in range(window):
+                lid = next(it, None)
+                if lid is None:
+                    break
+                inflight.add(ex.submit(task, lid))
+            while inflight:
+                completed, inflight = wait(inflight, return_when=FIRST_COMPLETED)
+                for fut in completed:
+                    r = fut.result()
+                    done += 1
+                    if r:
+                        for k, v in r.items():
+                            agg[k] = agg.get(k, 0) + v
+                    if job_id not in CANCEL:          # top up the window
+                        lid = next(it, None)
+                        if lid is not None:
+                            inflight.add(ex.submit(task, lid))
+                now = time.time()
+                if now - last_write >= 2.0:           # throttle progress writes
+                    _write_job(job_id, done, agg)
+                    last_write = now
         _write_job(job_id, done, agg, status="cancelled" if job_id in CANCEL else "done")
     except Exception:
         _write_job(job_id, done, agg, status="error")
@@ -1208,11 +1231,17 @@ def get_list(list_id: int):
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        leads = s.query(Lead).filter_by(list_id=list_id).all()
+        # CAP: never load an entire huge list into memory (that OOMs the container).
+        # The grid windows to a few hundred rows anyway; big lists are browsed via
+        # the paginated Database view.
+        total = s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0
+        leads = (s.query(Lead).filter_by(list_id=list_id)
+                 .order_by(Lead.id).limit(LIST_LEAD_CAP).all())
         job = (s.query(Job).filter_by(list_id=list_id)
                .order_by(Job.created_at.desc()).first())
         return {
-            "list": {"id": l.id, "name": l.name, "variable_set": l.variable_set, "count": len(leads)},
+            "list": {"id": l.id, "name": l.name, "variable_set": l.variable_set,
+                     "count": total, "shown": len(leads), "truncated": total > len(leads)},
             "leads": [{
                 "id": ld.id, "first_name": ld.first_name, "last_name": ld.last_name,
                 "title": ld.title, "company": ld.company, "website": ld.website,
@@ -1886,6 +1915,43 @@ def run_all(slug: str, body: RunAllBody):
         else:
             threading.Thread(target=_run_title_job, args=(job_id, target_ids), daemon=True).start()
     return {"job_id": job_id, "count": len(target_ids)}
+
+
+@app.post("/api/workspaces/{slug}/dedupe")
+def dedupe(slug: str):
+    """Remove duplicate leads by email across the whole workspace. Keeps ONE per
+    email, preferring a classified lead (has an industry); deletes the rest.
+    Leads with no email are left untouched."""
+    s = SessionLocal()
+    try:
+        list_ids = _ws_list_ids(s, slug)
+        if not list_ids:
+            return {"removed": 0}
+        rows = (s.query(Lead.id, Lead.email, Lead.industry)
+                .filter(Lead.list_id.in_(list_ids),
+                        Lead.email != None, Lead.email != "").all())  # noqa: E711
+        groups = {}
+        for lid, email, industry in rows:
+            key = (email or "").strip().lower()
+            if not key:
+                continue
+            classified = bool(industry and str(industry).strip())
+            groups.setdefault(key, []).append((lid, classified))
+        to_delete = []
+        for items in groups.values():
+            if len(items) < 2:
+                continue
+            # keeper: classified first, then lowest id; delete the rest
+            items.sort(key=lambda t: (0 if t[1] else 1, t[0]))
+            to_delete.extend(lid for lid, _ in items[1:])
+        removed = 0
+        for i in range(0, len(to_delete), 1000):
+            chunk = to_delete[i:i + 1000]
+            removed += s.query(Lead).filter(Lead.id.in_(chunk)).delete(synchronize_session=False)
+        s.commit()
+        return {"removed": removed}
+    finally:
+        s.close()
 
 
 @app.get("/api/workspaces/{slug}/active-job")

@@ -638,6 +638,7 @@ function renderDatabase(){
     <span class="selinfo" id="dbSelInfo"></span>
     <span class="gtact" id="dbExport">Export ${d.total.toLocaleString()}</span>
     <span class="gtact" id="dbSendBtn">Send to workspace →</span>
+    <span class="gtact" id="dbDedupe">Remove duplicates</span>
   </div>`;
   h += `<div class="dbselnotice" id="dbSelNotice" hidden></div>`;
   h += `<div class="dbsend" id="dbSendPanel" hidden></div>`;
@@ -702,6 +703,7 @@ function wireDatabase(){
   });
   $("dbExport").onclick = dbExport;
   $("dbSendBtn").onclick = dbSend;
+  const dd = $("dbDedupe"); if(dd) dd.onclick = dbDedupe;
   const tA = $("dbTitleAll"); if(tA) tA.onclick = () => runDbJob("titlecheck");
   const eA = $("dbEspAll"); if(eA) eA.onclick = () => runDbJob("esp");
   const cA = $("dbClassifyAll"); if(cA) cA.onclick = () => runDbJob("classify");
@@ -782,6 +784,18 @@ async function runDbJob(kind){
   if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
   pollDbJob(r.job_id, kind);
 }
+
+async function dbDedupe(){
+  if(!confirm("Remove duplicate leads by email across this whole workspace? Keeps one per email (prefers the classified one), deletes the rest. This can't be undone.")) return;
+  const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
+  setMsg("Removing duplicates…");
+  try{
+    const r = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/dedupe`, { method: "POST" });
+    setMsg(`Removed ${(r.removed || 0).toLocaleString()} duplicate(s) ✓`);
+    db_resetAndReload();
+  }catch(e){ setMsg("Dedupe failed"); }
+}
+function db_resetAndReload(){ const db = dbState(); db.page = 1; db.selected.clear(); db.selectAll = false; fetchDatabase(); }
 
 // ids to send: explicit selection wins; "select all" uses the filters (no ids)
 function dbSelectionIds(){
