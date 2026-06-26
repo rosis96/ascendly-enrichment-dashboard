@@ -257,3 +257,7 @@ tbody tr:hover{background:var(--surface)}
 .dbselnotice .gtact{color:var(--acc-tx);text-decoration:underline}
 
 [hidden]{display:none!important}
+
+.dbjobs{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.dbjobs-l{font-size:12.5px;color:var(--muted);margin-right:2px}
+.dbjobs #dbJobMsg{margin-left:6px}

@@ -611,7 +611,12 @@ function renderDatabase(){
   const indPairs = [["", "All industries"]].concat((db.tax || []).map(x => [x, x]));
   const espPairs = [["", "Any ESP"], ["Microsoft", "Microsoft"], ["Google", "Google"], ["Other", "Other"], ["Unknown", "Unknown"]];
   const titlePairs = [["", "Any title"], ["pass", "Title ✓"], ["rejected", "Title ✗"]];
-  let h = `<div class="dbfilters">
+  let h = `<div class="dbjobs"><span class="dbjobs-l">Run on the whole database (skips already-done):</span>` +
+    `<button class="gbtn" id="dbTitleAll">✓ Title check</button>` +
+    `<button class="gbtn" id="dbEspAll">@ ESP</button>` +
+    `<button class="gbtn" id="dbClassifyAll">▤ Classify</button>` +
+    `<span class="muted" id="dbJobMsg"></span></div>` +
+    `<div class="dbfilters">
     <select id="dbInd">${opt(f.industry || "", indPairs)}</select>
     <select id="dbEsp">${opt(f.esp || "", espPairs)}</select>
     <select id="dbTitle">${opt(f.title_status || "", titlePairs)}</select>
@@ -692,6 +697,9 @@ function wireDatabase(){
   });
   $("dbExport").onclick = dbExport;
   $("dbSendBtn").onclick = dbSend;
+  const tA = $("dbTitleAll"); if(tA) tA.onclick = () => runDbJob("titlecheck");
+  const eA = $("dbEspAll"); if(eA) eA.onclick = () => runDbJob("esp");
+  const cA = $("dbClassifyAll"); if(cA) cA.onclick = () => runDbJob("classify");
   const byId = {}; (db.data.leads || []).forEach(l => { byId[l.id] = l; });
   document.querySelectorAll(".dblink").forEach(x => x.onclick = () => openDbDetail(byId[x.dataset.id]));
   updateDbSel();
@@ -738,6 +746,28 @@ function updateDbSel(){
   }
   const sa = $("dbSelAllFiltered"); if(sa) sa.onclick = () => { db.selectAll = true; renderDatabase(); };
   const cl = $("dbClearSel"); if(cl) cl.onclick = () => { db.selectAll = false; db.selected.clear(); renderDatabase(); };
+}
+
+async function runDbJob(kind){
+  const slug = encodeURIComponent(state.variableSet);
+  const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
+  if(kind === "classify" && !confirm("Classify every not-yet-classified lead in the whole database? This uses OpenAI credit.")) return;
+  setMsg("Starting…");
+  let r;
+  try{
+    r = await api(`/api/workspaces/${slug}/run-all`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, workers: kind === "classify" ? 50 : (kind === "esp" ? 40 : null) }) });
+  }catch(e){ setMsg("Failed to start"); return; }
+  if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
+  const labels = { classify: "Classifying", esp: "Checking ESP", titlecheck: "Title-checking" };
+  if(state.dbJobPoll) clearInterval(state.dbJobPoll);
+  state.dbJobPoll = setInterval(async () => {
+    let j; try{ j = await api("/api/jobs/" + r.job_id); }catch(e){ return; }
+    const fin = ["done", "error", "cancelled"].includes(j.status);
+    setMsg(`${labels[kind] || "Running"}: ${(j.done || 0).toLocaleString()} of ${(j.total || 0).toLocaleString()}${fin ? " — done ✓" : "…"}`);
+    if(fin){ clearInterval(state.dbJobPoll); state.dbJobPoll = null; fetchDatabase(); }
+  }, 1500);
 }
 
 // ids to send: explicit selection wins; "select all" uses the filters (no ids)

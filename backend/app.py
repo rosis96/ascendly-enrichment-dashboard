@@ -1834,6 +1834,52 @@ def database_send(slug: str, body: DBSendBody):
         s.close()
 
 
+class RunAllBody(BaseModel):
+    kind: str                      # classify | esp | titlecheck
+    workers: Optional[int] = None
+    skip_done: bool = True
+
+
+@app.post("/api/workspaces/{slug}/run-all")
+def run_all(slug: str, body: RunAllBody):
+    """Run Classify / ESP / Title-check across EVERY lead in the workspace (all
+    lists), skipping leads already done. One click for the whole master database."""
+    s = SessionLocal()
+    try:
+        list_ids = _ws_list_ids(s, slug)
+        if not list_ids:
+            return {"job_id": None, "count": 0}
+        q = s.query(Lead.id).filter(Lead.list_id.in_(list_ids))
+        kind = body.kind
+        if kind == "classify":
+            if body.skip_done:
+                q = q.filter((Lead.industry == None) | (Lead.industry == ""))  # noqa: E711
+        elif kind == "esp":
+            if body.skip_done:
+                q = q.filter((Lead.esp == None) | (Lead.esp == ""))  # noqa: E711
+        elif kind == "titlecheck":
+            if body.skip_done:
+                q = q.filter((Lead.title_status == None) | (Lead.title_status == ""))  # noqa: E711
+        else:
+            raise HTTPException(400, "kind must be classify, esp, or titlecheck")
+        target_ids = [lid for (lid,) in q.all()]
+        job = Job(list_id=list_ids[0], kind=kind, status="queued" if target_ids else "done",
+                  total=len(target_ids), variable_set=slug, summary={})
+        s.add(job)
+        s.commit()
+        job_id = job.id
+    finally:
+        s.close()
+    if target_ids:
+        if kind == "classify":
+            threading.Thread(target=_run_classify_job, args=(job_id, target_ids, body.workers), daemon=True).start()
+        elif kind == "esp":
+            threading.Thread(target=_run_esp_job, args=(job_id, target_ids, body.workers), daemon=True).start()
+        else:
+            threading.Thread(target=_run_title_job, args=(job_id, target_ids), daemon=True).start()
+    return {"job_id": job_id, "count": len(target_ids)}
+
+
 # ------------------------- auth + static frontend -------------------------
 
 class LoginBody(BaseModel):
