@@ -1696,8 +1696,11 @@ def _database_query(s, list_ids, f):
     if not list_ids:
         return s.query(Lead).filter(Lead.id < 0)  # empty
     q = s.query(Lead).filter(Lead.list_id.in_(list_ids))
-    if f.get("industry"):
-        q = q.filter(Lead.industry == f["industry"])
+    ind = f.get("industry")
+    if ind == "__unclassified__":
+        q = q.filter((Lead.industry == None) | (Lead.industry == ""))  # noqa: E711
+    elif ind:
+        q = q.filter(Lead.industry == ind)
     if f.get("esp"):
         q = q.filter(Lead.esp == f["esp"])
     if f.get("title_status"):

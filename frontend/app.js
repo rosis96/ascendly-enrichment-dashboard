@@ -608,7 +608,7 @@ function renderDatabase(){
   const db = dbState(), d = db.data, f = db.filters;
   if(!d) return;
   const opt = (cur, pairs) => pairs.map(([v, lbl]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(lbl)}</option>`).join("");
-  const indPairs = [["", "All industries"]].concat((db.tax || []).map(x => [x, x]));
+  const indPairs = [["", "All industries"], ["__unclassified__", "— Unclassified —"]].concat((db.tax || []).map(x => [x, x]));
   const espPairs = [["", "Any ESP"], ["Microsoft", "Microsoft"], ["Google", "Google"], ["Other", "Other"], ["Unknown", "Unknown"]];
   const titlePairs = [["", "Any title"], ["pass", "Title ✓"], ["rejected", "Title ✗"]];
   let h = `<div class="dbjobs"><span class="dbjobs-l">Run on the whole database (skips already-done):</span>` +
