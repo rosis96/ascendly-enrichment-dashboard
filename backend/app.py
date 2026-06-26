@@ -1677,6 +1677,7 @@ class DBFilters(BaseModel):
     employees_min: Optional[int] = None
     employees_max: Optional[int] = None
     q: Optional[str] = None
+    lead_ids: list[int] = []   # explicit selection; when set, overrides the filters
     page: int = 1
     page_size: int = 50
 
@@ -1766,8 +1767,11 @@ def database_view(slug: str, body: DBFilters):
 def database_export(slug: str, body: DBFilters):
     s = SessionLocal()
     try:
-        list_ids = _ws_list_ids(s, slug)
-        leads = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
+        if body.lead_ids:
+            leads = s.query(Lead).filter(Lead.id.in_(body.lead_ids)).order_by(Lead.id).all()
+        else:
+            list_ids = _ws_list_ids(s, slug)
+            leads = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
         raw_cols = []
         for ld in leads:
             for k in (ld.data or {}).keys():

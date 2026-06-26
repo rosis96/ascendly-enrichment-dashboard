@@ -251,3 +251,7 @@ tbody tr:hover{background:var(--surface)}
 .delacts{display:flex;flex-direction:column;align-items:stretch;gap:9px;margin-top:16px}
 .delacts .gbtn,.delacts .run{justify-content:center;padding:11px}
 .delacts .gtact{text-align:center}
+
+.dbselnotice{background:var(--acc-bg);color:var(--acc-tx);border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:12.5px}
+.dbselnotice b{font-weight:700}
+.dbselnotice .gtact{color:var(--acc-tx);text-decoration:underline}

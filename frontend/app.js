@@ -581,7 +581,7 @@ async function loadBalance(){
 
 // ---------------- Database (Apollo-style) view ----------------
 function dbState(){
-  if(!state.db) state.db = { filters: {}, page: 1, pageSize: 50, selected: new Set(), tax: null, data: null };
+  if(!state.db) state.db = { filters: {}, page: 1, pageSize: 50, selected: new Set(), selectAll: false, tax: null, data: null };
   return state.db;
 }
 
@@ -629,14 +629,16 @@ function renderDatabase(){
     <span class="gtact" id="dbExport">Export ${d.total.toLocaleString()}</span>
     <span class="gtact" id="dbSendBtn">Send to workspace →</span>
   </div>`;
+  h += `<div class="dbselnotice" id="dbSelNotice" hidden></div>`;
   h += `<div class="dbsend" id="dbSendPanel" hidden></div>`;
   const fixedCols = ["Name", "Title", "Company", "Email", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
   const dataCols = d.data_columns || [];
-  h += `<div class="dbtablewrap"><table class="dbtable"><thead><tr><th class="cbx"><input type="checkbox" id="dbSelAll"></th>` +
+  const pageAllSel = (d.leads || []).length > 0 && (d.leads || []).every(l => db.selectAll || db.selected.has(l.id));
+  h += `<div class="dbtablewrap"><table class="dbtable"><thead><tr><th class="cbx"><input type="checkbox" id="dbSelAll" ${pageAllSel ? "checked" : ""}></th>` +
     fixedCols.map(c => `<th>${c}</th>`).join("") +
     dataCols.map(c => `<th>${esc(c)}</th>`).join("") + `</tr></thead><tbody>`;
   (d.leads || []).forEach(l => {
-    const ck = db.selected.has(l.id) ? "checked" : "";
+    const ck = (db.selectAll || db.selected.has(l.id)) ? "checked" : "";
     const data = l.data || {};
     h += `<tr><td class="cbx"><input type="checkbox" class="dbcb" data-id="${l.id}" ${ck}></td>` +
       `<td><b class="dblink" data-id="${l.id}">${esc(l.first_name)} ${esc(l.last_name)}</b></td><td>${esc(l.title)}</td>` +
@@ -669,16 +671,24 @@ function wireDatabase(){
       country: txt("dbCountry"), seniority: txt("dbSeniority"), q: txt("dbSearch"),
     };
   };
-  $("dbApply").onclick = () => { readFilters(); db.page = 1; fetchDatabase(); };
-  $("dbClear").onclick = () => { db.filters = {}; db.page = 1; db.selected.clear(); fetchDatabase(); };
-  $("dbSearch").onkeydown = e => { if(e.key === "Enter"){ readFilters(); db.page = 1; fetchDatabase(); } };
+  const resetSel = () => { db.selected.clear(); db.selectAll = false; };
+  $("dbApply").onclick = () => { readFilters(); db.page = 1; resetSel(); fetchDatabase(); };
+  $("dbClear").onclick = () => { db.filters = {}; db.page = 1; resetSel(); fetchDatabase(); };
+  $("dbSearch").onkeydown = e => { if(e.key === "Enter"){ readFilters(); db.page = 1; resetSel(); fetchDatabase(); } };
   $("dbPrev").onclick = () => { if(db.page > 1){ db.page--; fetchDatabase(); } };
   $("dbNext").onclick = () => { db.page++; fetchDatabase(); };
   $("dbPageSize").onchange = e => { db.pageSize = parseInt(e.target.value, 10); db.page = 1; fetchDatabase(); };
   const selAll = $("dbSelAll");
-  selAll.onchange = () => { (db.data.leads || []).forEach(l => selAll.checked ? db.selected.add(l.id) : db.selected.delete(l.id)); renderDatabase(); };
+  selAll.onchange = () => {
+    db.selectAll = false;
+    (db.data.leads || []).forEach(l => selAll.checked ? db.selected.add(l.id) : db.selected.delete(l.id));
+    renderDatabase();
+  };
   document.querySelectorAll(".dbcb").forEach(cb => cb.onchange = () => {
-    const id = +cb.dataset.id; cb.checked ? db.selected.add(id) : db.selected.delete(id); updateDbSel();
+    const id = +cb.dataset.id;
+    if(db.selectAll){ db.selectAll = false; (db.data.leads || []).forEach(l => db.selected.add(l.id)); }
+    cb.checked ? db.selected.add(id) : db.selected.delete(id);
+    renderDatabase();
   });
   $("dbExport").onclick = dbExport;
   $("dbSendBtn").onclick = dbSend;
@@ -707,14 +717,42 @@ function openDbDetail(l){
 }
 
 function updateDbSel(){
-  const el = $("dbSelInfo"); if(el) el.textContent = dbState().selected.size ? `${dbState().selected.size} selected` : "";
+  const db = dbState(), d = db.data || {};
+  const total = d.total || 0, pageLeads = d.leads || [];
+  const pageAllSel = pageLeads.length > 0 && pageLeads.every(l => db.selectAll || db.selected.has(l.id));
+  const info = $("dbSelInfo"), notice = $("dbSelNotice");
+  if(info) info.textContent = db.selectAll ? `${total.toLocaleString()} selected`
+    : (db.selected.size ? `${db.selected.size} selected` : "");
+  if(notice){
+    if(db.selectAll){
+      notice.hidden = false;
+      notice.innerHTML = `All <b>${total.toLocaleString()}</b> leads selected. <a class="gtact" id="dbClearSel">Clear selection</a>`;
+    } else if(db.selected.size && pageAllSel && total > pageLeads.length){
+      notice.hidden = false;
+      notice.innerHTML = `All <b>${pageLeads.length}</b> on this page selected. ` +
+        `<a class="gtact" id="dbSelAllFiltered">Select all ${total.toLocaleString()}</a> · <a class="gtact" id="dbClearSel">Clear</a>`;
+    } else if(db.selected.size){
+      notice.hidden = false;
+      notice.innerHTML = `<b>${db.selected.size}</b> selected · <a class="gtact" id="dbClearSel">Clear</a>`;
+    } else { notice.hidden = true; notice.innerHTML = ""; }
+  }
+  const sa = $("dbSelAllFiltered"); if(sa) sa.onclick = () => { db.selectAll = true; renderDatabase(); };
+  const cl = $("dbClearSel"); if(cl) cl.onclick = () => { db.selectAll = false; db.selected.clear(); renderDatabase(); };
+}
+
+// ids to send: explicit selection wins; "select all" uses the filters (no ids)
+function dbSelectionIds(){
+  const db = dbState();
+  return (!db.selectAll && db.selected.size) ? [...db.selected] : null;
 }
 
 async function dbExport(){
   const db = dbState();
+  const body = Object.assign({}, db.filters);
+  const ids = dbSelectionIds(); if(ids) body.lead_ids = ids;
   try{
     const r = await fetch(`/api/workspaces/${encodeURIComponent(state.variableSet)}/database/export`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(db.filters) });
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if(r.status === 401){ window.location = "/login"; return; }
     if(!r.ok){ alert("Export failed"); return; }
     const blob = await r.blob(), url = URL.createObjectURL(blob);
@@ -728,7 +766,9 @@ async function dbSend(){
   if(!panel.hidden){ panel.hidden = true; return; }
   let wss = []; try{ wss = await api("/api/workspaces"); }catch(e){}
   const targets = wss.filter(w => w.key !== state.variableSet);
-  const what = db.selected.size ? `${db.selected.size} selected` : `${(db.data ? db.data.total : 0).toLocaleString()} filtered`;
+  const total = (db.data ? db.data.total : 0);
+  const what = db.selectAll ? `${total.toLocaleString()} (all)`
+    : (db.selected.size ? `${db.selected.size} selected` : `${total.toLocaleString()} filtered`);
   panel.innerHTML = `Send <b>${what}</b> to ` +
     `<select id="dbTarget">${targets.map(w => `<option value="${esc(w.key)}">${esc(w.name)}</option>`).join("")}</select> ` +
     `<input id="dbListName" placeholder="New list name (optional)" /> ` +
@@ -738,7 +778,7 @@ async function dbSend(){
   $("dbSendGo").onclick = async () => {
     const target = $("dbTarget").value; if(!target) return;
     const body = Object.assign({}, db.filters, { target, list_name: $("dbListName").value.trim() });
-    if(db.selected.size) body.lead_ids = [...db.selected];
+    const ids = dbSelectionIds(); if(ids) body.lead_ids = ids;
     $("dbSendGo").disabled = true; $("dbSendMsg").textContent = "Sending…";
     try{
       const r = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/database/send`, {
