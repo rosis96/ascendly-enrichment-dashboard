@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import SessionLocal, init_db
-from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule
+from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule, ImportField
 from sqlalchemy import or_, func
 import engine_adapter as ea
 from integrations import reoon
@@ -159,6 +159,10 @@ def _to_int(s):
         return None
 
 
+_FIXED_MAP_FIELDS = {"first_name", "last_name", "email", "title", "company", "website",
+                     "employees", "country", "state", "seniority", "industry"}
+
+
 def _parse_csv(content_bytes, mapping=None):
     """Parse an uploaded CSV into lead dicts. `mapping` (system_field -> CSV header)
     comes from the import column-mapping step; when present we use it exactly. With
@@ -192,6 +196,11 @@ def _parse_csv(content_bytes, mapping=None):
             ind = mv("industry")
             if ind:
                 rec["industry"] = ind   # CSV already carries our industry -> pre-classified
+            # any non-fixed mapping key is a user-added custom field -> store in data
+            # under its canonical name so it's consistent across files & exports.
+            for mk, col in mapping.items():
+                if mk not in _FIXED_MAP_FIELDS and col:
+                    rowmap[mk] = str(rowmap.get(col, "") or "").strip()
             out.append(rec)
         else:
             out.append({
@@ -1304,6 +1313,48 @@ def status():
 @app.get("/api/taxonomy")
 def get_taxonomy():
     return ea.taxonomy()
+
+
+class ImportFieldBody(BaseModel):
+    name: str
+
+
+@app.get("/api/import-fields")
+def list_import_fields():
+    s = SessionLocal()
+    try:
+        return [r.name for r in s.query(ImportField).order_by(ImportField.id).all()]
+    finally:
+        s.close()
+
+
+@app.post("/api/import-fields")
+def add_import_field(body: ImportFieldBody):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Field name required")
+    s = SessionLocal()
+    try:
+        exists = s.query(ImportField).filter(func.lower(ImportField.name) == name.lower()).first()
+        if not exists:
+            s.add(ImportField(name=name))
+            s.commit()
+        return [r.name for r in s.query(ImportField).order_by(ImportField.id).all()]
+    finally:
+        s.close()
+
+
+@app.delete("/api/import-fields/{name}")
+def delete_import_field(name: str):
+    s = SessionLocal()
+    try:
+        r = s.query(ImportField).filter(func.lower(ImportField.name) == name.lower()).first()
+        if r:
+            s.delete(r)
+            s.commit()
+        return [x.name for x in s.query(ImportField).order_by(ImportField.id).all()]
+    finally:
+        s.close()
 
 
 class RulesBody(BaseModel):

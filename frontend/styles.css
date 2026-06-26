@@ -241,3 +241,6 @@ tbody tr:hover{background:var(--surface)}
 .mapf{flex:none;width:200px;font-size:13px;font-weight:600;color:var(--text)}
 .maprow select{flex:1;height:36px;border:1px solid var(--line);border-radius:10px;padding:0 10px;font-family:inherit;font-size:12.5px;background:var(--panel);color:var(--text)}
 .mapacts{display:flex;align-items:center;gap:14px;margin-top:18px}
+
+.cf-del{color:var(--hint);cursor:pointer;font-style:normal;font-size:10px;margin-left:4px}
+.cf-del:hover{color:var(--red-tx)}

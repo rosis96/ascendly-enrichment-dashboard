@@ -68,6 +68,14 @@ class HiddenVariable(Base):
     name = Column(String)
 
 
+class ImportField(Base):
+    """A user-added custom column for the CSV import mapping (e.g. LinkedIn,
+    Company Address). Global — appears in every import's mapping step."""
+    __tablename__ = "import_fields"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True)
+
+
 class EnrichRule(Base):
     """Free-text correction rules the user piles up per format set / workspace.
     One row per variable_set. Each non-empty line is injected into the writer's

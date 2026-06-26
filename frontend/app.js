@@ -1206,27 +1206,54 @@ const MAP_FIELDS = [
   ["industry", "Industry (already classified)", ["industry"]],
 ];
 
-function openMapModal(headers){
+async function openMapModal(headers){
+  state._mapHeaders = headers;
+  await renderMapModal();
+}
+
+async function renderMapModal(){
+  const headers = state._mapHeaders || [];
+  let custom = [];
+  try{ custom = await api("/api/import-fields"); }catch(e){ custom = []; }
   const lowmap = {}; headers.forEach(h => { lowmap[h.toLowerCase()] = h; });
   const guess = cands => { for(const c of cands){ if(lowmap[c]) return lowmap[c]; } return ""; };
   const optList = sel => `<option value="">Don't import</option>` +
     headers.map(h => `<option ${h === sel ? "selected" : ""}>${esc(h)}</option>`).join("");
   let h = `<div class="modal-box"><div class="modal-h">Map your CSV columns<i class="modal-x" id="mapClose">✕</i></div>` +
-    `<div class="modal-sub">Pick which column in your file feeds each field. Leave as "Don't import" to skip. ` +
-    `If your file has our Industry column, map it and those leads import as already-classified.</div><div class="maprows">`;
+    `<div class="modal-sub">Pick which column feeds each field; "Don't import" to skip. Map our Industry column to import leads already-classified. ` +
+    `Add custom fields (LinkedIn, Company Address…) — they're saved for every future import.</div><div class="maprows">`;
   MAP_FIELDS.forEach(([key, label, cands]) => {
     h += `<div class="maprow"><span class="mapf">${label}</span><select data-mf="${key}">${optList(guess(cands))}</select></div>`;
   });
-  h += `</div><div class="mapacts"><button class="run" id="mapFinish">Finish mapping & import</button>` +
-    `<span class="gtact" id="mapCancel">Cancel</span></div></div>`;
+  custom.forEach(name => {
+    h += `<div class="maprow"><span class="mapf">${esc(name)} <i class="cf-del" data-cf="${esc(name)}" title="Remove this field">✕</i></span>` +
+      `<select data-mf="${esc(name)}">${optList(guess([name.toLowerCase()]))}</select></div>`;
+  });
+  h += `</div><div class="mapacts"><button class="gbtn" id="mapAddField">+ Add custom field</button>` +
+    `<button class="run" id="mapFinish">Finish mapping & import</button><span class="gtact" id="mapCancel">Cancel</span></div></div>`;
   const m = $("mapModal"); m.innerHTML = h; m.hidden = false;
   const close = () => { m.hidden = true; };
   $("mapClose").onclick = $("mapCancel").onclick = close;
+  $("mapAddField").onclick = addImportField;
+  m.querySelectorAll(".cf-del").forEach(x => x.onclick = async () => {
+    try{ await api("/api/import-fields/" + encodeURIComponent(x.dataset.cf), { method: "DELETE" }); }catch(e){}
+    renderMapModal();
+  });
   $("mapFinish").onclick = () => {
     const mapping = {};
     m.querySelectorAll("[data-mf]").forEach(s => { if(s.value) mapping[s.dataset.mf] = s.value; });
     state._pendingMapping = mapping; close(); createList();
   };
+}
+
+async function addImportField(){
+  const name = prompt("Custom field name (e.g. LinkedIn, Company Address):");
+  if(!name || !name.trim()) return;
+  try{
+    await api("/api/import-fields", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }) });
+  }catch(e){}
+  renderMapModal();
 }
 
 async function createList(){
