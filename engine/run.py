@@ -140,7 +140,7 @@ def discover_priority_links(home_url, max_pages):
     urls = [home_url]
 
     try:
-        resp = requests.get(home_url, headers=BROWSER_HEADERS, timeout=12)
+        resp = requests.get(home_url, headers=BROWSER_HEADERS, timeout=7)
         if resp.status_code >= 400:
             return urls
 
@@ -189,7 +189,7 @@ def discover_priority_links(home_url, max_pages):
 
 def fetch_html(url):
     try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=15, allow_redirects=True)
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=8, allow_redirects=True)
         if resp.status_code < 400 and resp.text:
             return resp.text
     except Exception:

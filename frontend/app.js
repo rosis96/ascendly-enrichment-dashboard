@@ -592,6 +592,11 @@ async function loadDatabase(){
   const db = dbState();
   if(!db.tax){ try{ db.tax = await api("/api/taxonomy"); }catch(e){ db.tax = []; } }
   await fetchDatabase();
+  // reconnect to a database-wide job that's still running on the server
+  try{
+    const a = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/active-job`);
+    if(a.job) pollDbJob(a.job.id, a.job.kind);
+  }catch(e){}
 }
 
 async function fetchDatabase(){
@@ -748,6 +753,21 @@ function updateDbSel(){
   const cl = $("dbClearSel"); if(cl) cl.onclick = () => { db.selectAll = false; db.selected.clear(); renderDatabase(); };
 }
 
+// Poll a running database-wide job. The job runs on the server regardless of the
+// browser, so this just reflects its progress and can reconnect after a reload.
+function pollDbJob(jobId, kind){
+  const labels = { classify: "Classifying", esp: "Checking ESP", titlecheck: "Title-checking" };
+  const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
+  if(state.dbJobPoll) clearInterval(state.dbJobPoll);
+  state.dbJobPoll = setInterval(async () => {
+    let j; try{ j = await api("/api/jobs/" + jobId); }catch(e){ return; }
+    const fin = ["done", "error", "cancelled"].includes(j.status);
+    setMsg(`${labels[kind] || "Running"}: ${(j.done || 0).toLocaleString()} of ${(j.total || 0).toLocaleString()}` +
+      (fin ? " — done ✓" : "… (keeps running in the background)"));
+    if(fin){ clearInterval(state.dbJobPoll); state.dbJobPoll = null; fetchDatabase(); }
+  }, 2000);
+}
+
 async function runDbJob(kind){
   const slug = encodeURIComponent(state.variableSet);
   const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
@@ -760,14 +780,7 @@ async function runDbJob(kind){
       body: JSON.stringify({ kind, workers: kind === "classify" ? 100 : (kind === "esp" ? 40 : null) }) });
   }catch(e){ setMsg("Failed to start"); return; }
   if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
-  const labels = { classify: "Classifying", esp: "Checking ESP", titlecheck: "Title-checking" };
-  if(state.dbJobPoll) clearInterval(state.dbJobPoll);
-  state.dbJobPoll = setInterval(async () => {
-    let j; try{ j = await api("/api/jobs/" + r.job_id); }catch(e){ return; }
-    const fin = ["done", "error", "cancelled"].includes(j.status);
-    setMsg(`${labels[kind] || "Running"}: ${(j.done || 0).toLocaleString()} of ${(j.total || 0).toLocaleString()}${fin ? " — done ✓" : "…"}`);
-    if(fin){ clearInterval(state.dbJobPoll); state.dbJobPoll = null; fetchDatabase(); }
-  }, 1500);
+  pollDbJob(r.job_id, kind);
 }
 
 // ids to send: explicit selection wins; "select all" uses the filters (no ids)

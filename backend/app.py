@@ -1888,6 +1888,29 @@ def run_all(slug: str, body: RunAllBody):
     return {"job_id": job_id, "count": len(target_ids)}
 
 
+@app.get("/api/workspaces/{slug}/active-job")
+def active_job(slug: str):
+    """The latest still-running database-wide job for this workspace, so the
+    Database view can reconnect to it after a reload (the job keeps running on the
+    server regardless of the browser)."""
+    s = SessionLocal()
+    try:
+        list_ids = _ws_list_ids(s, slug)
+        if not list_ids:
+            return {"job": None}
+        job = (s.query(Job)
+               .filter(Job.list_id.in_(list_ids),
+                       Job.kind.in_(["classify", "esp", "titlecheck"]),
+                       Job.status.in_(["queued", "running"]))
+               .order_by(Job.id.desc()).first())
+        if not job:
+            return {"job": None}
+        return {"job": {"id": job.id, "kind": job.kind, "status": job.status,
+                        "done": job.done, "total": job.total}}
+    finally:
+        s.close()
+
+
 # ------------------------- auth + static frontend -------------------------
 
 class LoginBody(BaseModel):
