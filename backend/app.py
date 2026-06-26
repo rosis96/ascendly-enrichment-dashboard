@@ -250,14 +250,19 @@ VERIFY_WORKERS = int(os.getenv("VERIFY_WORKERS", "10"))
 # high parallelism, so the ceiling is 100; for enrichment, keeping it ~10 is wiser
 # (rate limits/quality). Override via env if needed.
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))
+# Classification is the cheapest pass (homepage scrape + tiny model call) so it can
+# run with very high concurrency. Separate, higher ceiling just for classify.
+MAX_CLASSIFY_WORKERS = int(os.getenv("MAX_CLASSIFY_WORKERS", "500"))
+CLASSIFY_WORKERS = int(os.getenv("CLASSIFY_WORKERS", "100"))
 
 
-def _clamp_workers(n, default):
+def _clamp_workers(n, default, maximum=None):
+    maximum = maximum or MAX_WORKERS
     try:
         n = int(n)
     except (TypeError, ValueError):
         return default
-    return max(1, min(n, MAX_WORKERS))
+    return max(1, min(n, maximum))
 
 
 def _lead_row(ld):
@@ -491,7 +496,7 @@ def _classify_one(lead_id, tax):
 def _run_classify_job(job_id, target_ids, workers=None):
     from functools import partial
     _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()),
-                        _clamp_workers(workers, ENRICH_WORKERS))
+                        _clamp_workers(workers, CLASSIFY_WORKERS, MAX_CLASSIFY_WORKERS))
 
 
 def _esp_one(lead_id):
