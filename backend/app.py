@@ -1702,8 +1702,10 @@ def get_job(job_id: int):
 # ------------------------- Database (Apollo-style) view -------------------------
 
 class DBFilters(BaseModel):
-    industry: Optional[str] = None
-    esp: Optional[str] = None
+    industry: Optional[str] = None        # single (legacy)
+    esp: Optional[str] = None             # single (legacy)
+    industries: list[str] = []            # multi-select (OR); "__unclassified__" allowed
+    esps: list[str] = []                  # multi-select (OR)
     title_status: Optional[str] = None
     email_status: Optional[str] = None
     country: Optional[str] = None
@@ -1725,13 +1727,25 @@ def _database_query(s, list_ids, f):
     if not list_ids:
         return s.query(Lead).filter(Lead.id < 0)  # empty
     q = s.query(Lead).filter(Lead.list_id.in_(list_ids))
-    ind = f.get("industry")
-    if ind == "__unclassified__":
-        q = q.filter((Lead.industry == None) | (Lead.industry == ""))  # noqa: E711
-    elif ind:
-        q = q.filter(Lead.industry == ind)
-    if f.get("esp"):
-        q = q.filter(Lead.esp == f["esp"])
+    # industry: multi-select list, or single (legacy); "__unclassified__" = no industry
+    inds = list(f.get("industries") or [])
+    if not inds and f.get("industry"):
+        inds = [f["industry"]]
+    if inds:
+        named = [x for x in inds if x and x != "__unclassified__"]
+        conds = []
+        if named:
+            conds.append(Lead.industry.in_(named))
+        if "__unclassified__" in inds:
+            conds.append((Lead.industry == None) | (Lead.industry == ""))  # noqa: E711
+        if conds:
+            q = q.filter(or_(*conds))
+    # esp: multi-select list, or single (legacy)
+    esps = list(f.get("esps") or [])
+    if not esps and f.get("esp"):
+        esps = [f["esp"]]
+    if esps:
+        q = q.filter(Lead.esp.in_(esps))
     if f.get("title_status"):
         q = q.filter(Lead.title_status == f["title_status"])
     if f.get("email_status"):

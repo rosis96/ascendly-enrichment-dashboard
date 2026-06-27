@@ -417,6 +417,15 @@ DEFAULT_TAXONOMY = [
     "Media & Entertainment", "Education & EdTech", "Nonprofit & NGO",
     "Government & Public Sector", "Hospitality & Travel", "Logistics & Supply Chain",
     "Energy & Utilities", "Telecommunications", "Automotive & Transportation",
+    # finer-grained buckets so leads don't all clump into broad umbrellas
+    "Banking & Lending", "Insurance", "Venture Capital & Private Equity",
+    "Accounting & Tax", "Legal Services", "Staffing & Recruiting",
+    "AI & Machine Learning", "Data & Analytics", "Biotech & Pharmaceuticals",
+    "Wellness, Fitness & Beauty", "Food & Beverage", "Agriculture & Farming",
+    "Consumer Goods & CPG", "Home Services (HVAC/Plumbing/Roofing)", "Crypto & Blockchain",
+    "Wholesale & Distribution", "Mining & Metals", "Oil & Gas",
+    "Aerospace & Defense", "Chemicals & Materials", "Apparel & Fashion",
+    "Architecture & Interior Design", "Events & Conferences",
     "Other B2B", "Other B2C",
 ]
 

@@ -613,17 +613,24 @@ function renderDatabase(){
   const db = dbState(), d = db.data, f = db.filters;
   if(!d) return;
   const opt = (cur, pairs) => pairs.map(([v, lbl]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(lbl)}</option>`).join("");
-  const indPairs = [["", "All industries"], ["__unclassified__", "— Unclassified —"]].concat((db.tax || []).map(x => [x, x]));
-  const espPairs = [["", "Any ESP"], ["Microsoft", "Microsoft"], ["Google", "Google"], ["Other", "Other"], ["Unknown", "Unknown"]];
   const titlePairs = [["", "Any title"], ["pass", "Title ✓"], ["rejected", "Title ✗"]];
+  // multi-select dropdown (tick several values, OR-filtered)
+  const ms = (id, allLabel, opts, selected) => {
+    const sset = new Set(selected || []);
+    const items = opts.map(([v, lbl]) => `<label class="ms-item"><input type="checkbox" value="${esc(v)}" ${sset.has(v) ? "checked" : ""}> ${esc(lbl)}</label>`).join("");
+    return `<div class="ms" id="${id}" data-all="${esc(allLabel)}"><button type="button" class="ms-btn">${sset.size ? sset.size + " selected" : esc(allLabel)} ▾</button>` +
+      `<div class="ms-panel" hidden>${items}<div class="ms-foot"><a class="gtact ms-clear">Clear</a></div></div></div>`;
+  };
+  const indOptsMS = [["__unclassified__", "— Unclassified —"]].concat((db.tax || []).map(x => [x, x]));
+  const espOptsMS = [["Microsoft", "Microsoft"], ["Google", "Google"], ["Other", "Other"], ["Unknown", "Unknown"]];
   let h = `<div class="dbjobs"><span class="dbjobs-l">Run on the whole database (skips already-done):</span>` +
     `<button class="gbtn" id="dbTitleAll">✓ Title check</button>` +
     `<button class="gbtn" id="dbEspAll">@ ESP</button>` +
     `<button class="gbtn" id="dbClassifyAll">▤ Classify</button>` +
     `<span class="muted" id="dbJobMsg"></span></div>` +
     `<div class="dbfilters">
-    <select id="dbInd">${opt(f.industry || "", indPairs)}</select>
-    <select id="dbEsp">${opt(f.esp || "", espPairs)}</select>
+    ${ms("dbIndMS", "All industries", indOptsMS, f.industries)}
+    ${ms("dbEspMS", "Any ESP", espOptsMS, f.esps)}
     <select id="dbTitle">${opt(f.title_status || "", titlePairs)}</select>
     <input id="dbEmpMin" type="number" min="0" placeholder="min emp" value="${f.employees_min ?? ""}" />
     <input id="dbEmpMax" type="number" min="0" placeholder="max emp" value="${f.employees_max ?? ""}" />
@@ -674,14 +681,33 @@ function wireDatabase(){
   const db = dbState();
   const num = id => { const n = parseInt(($(id) || {}).value, 10); return Number.isFinite(n) ? n : null; };
   const txt = id => { const e = $(id); return e && e.value.trim() ? e.value.trim() : null; };
+  const msVals = id => Array.from(document.querySelectorAll(`#${id} input:checked`)).map(c => c.value);
   const readFilters = () => {
     db.filters = {
-      industry: $("dbInd").value || null, esp: $("dbEsp").value || null,
+      industries: msVals("dbIndMS"), esps: msVals("dbEspMS"),
       title_status: $("dbTitle").value || null,
       employees_min: num("dbEmpMin"), employees_max: num("dbEmpMax"),
       country: txt("dbCountry"), seniority: txt("dbSeniority"), q: txt("dbSearch"),
     };
   };
+  // multi-select dropdowns: open/close + live count label
+  document.querySelectorAll(".ms").forEach(msEl => {
+    const btn = msEl.querySelector(".ms-btn"), panel = msEl.querySelector(".ms-panel");
+    btn.onclick = e => {
+      e.stopPropagation();
+      document.querySelectorAll(".ms-panel").forEach(p => { if(p !== panel) p.hidden = true; });
+      panel.hidden = !panel.hidden;
+    };
+    const upd = () => { const n = msEl.querySelectorAll("input:checked").length; btn.textContent = (n ? n + " selected" : msEl.dataset.all) + " ▾"; };
+    msEl.querySelectorAll("input").forEach(cb => cb.onchange = upd);
+    const cl = msEl.querySelector(".ms-clear"); if(cl) cl.onclick = () => { msEl.querySelectorAll("input").forEach(c => c.checked = false); upd(); };
+  });
+  if(!state._msCloser){
+    state._msCloser = true;
+    document.addEventListener("click", e => {
+      if(!e.target.closest(".ms")) document.querySelectorAll(".ms-panel").forEach(p => p.hidden = true);
+    });
+  }
   const resetSel = () => { db.selected.clear(); db.selectAll = false; };
   $("dbApply").onclick = () => { readFilters(); db.page = 1; resetSel(); fetchDatabase(); };
   $("dbClear").onclick = () => { db.filters = {}; db.page = 1; resetSel(); fetchDatabase(); };
