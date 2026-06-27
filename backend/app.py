@@ -1945,6 +1945,7 @@ class RunAllBody(BaseModel):
     kind: str                      # classify | esp | titlecheck
     workers: Optional[int] = None
     skip_done: bool = True
+    limit: Optional[int] = None    # process at most this many leads this run (chunking)
 
 
 @app.post("/api/workspaces/{slug}/run-all")
@@ -1969,6 +1970,11 @@ def run_all(slug: str, body: RunAllBody):
                 q = q.filter((Lead.title_status == None) | (Lead.title_status == ""))  # noqa: E711
         else:
             raise HTTPException(400, "kind must be classify, esp, or titlecheck")
+        # Process in a bounded chunk this run (user-chosen). Ordered so repeated
+        # runs march through the remaining undone leads instead of overlapping.
+        q = q.order_by(Lead.id)
+        if body.limit and body.limit > 0:
+            q = q.limit(int(body.limit))
         target_ids = [lid for (lid,) in q.all()]
         job = Job(list_id=list_ids[0], kind=kind, status="queued" if target_ids else "done",
                   total=len(target_ids), variable_set=slug, summary={})

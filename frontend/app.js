@@ -627,6 +627,7 @@ function renderDatabase(){
     `<button class="gbtn" id="dbTitleAll">✓ Title check</button>` +
     `<button class="gbtn" id="dbEspAll">@ ESP</button>` +
     `<button class="gbtn" id="dbClassifyAll">▤ Classify</button>` +
+    `<input id="dbRunLimit" type="number" min="1" step="1000" placeholder="max leads (blank = all)" title="How many leads to process this run. Leave blank to do all remaining." style="width:170px" />` +
     `<span class="muted" id="dbJobMsg"></span></div>` +
     `<div class="dbfilters">
     ${ms("dbIndMS", "All industries", indOptsMS, f.industries)}
@@ -799,13 +800,16 @@ function pollDbJob(jobId, kind){
 async function runDbJob(kind){
   const slug = encodeURIComponent(state.variableSet);
   const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
-  if(kind === "classify" && !confirm("Classify every not-yet-classified lead in the whole database? This uses OpenAI credit.")) return;
+  const limEl = $("dbRunLimit");
+  const limit = limEl && limEl.value ? Math.max(1, parseInt(limEl.value, 10) || 0) : null;
+  const limTxt = limit ? `the next ${limit.toLocaleString()}` : "every";
+  if(kind === "classify" && !confirm(`Classify ${limTxt} not-yet-classified lead(s) in the database? This uses OpenAI credit.`)) return;
   setMsg("Starting…");
   let r;
   try{
     r = await api(`/api/workspaces/${slug}/run-all`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, workers: kind === "classify" ? 40 : (kind === "esp" ? 30 : null) }) });
+      body: JSON.stringify({ kind, limit, workers: kind === "classify" ? 40 : (kind === "esp" ? 30 : null) }) });
   }catch(e){ setMsg("Failed to start"); return; }
   if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
   pollDbJob(r.job_id, kind);

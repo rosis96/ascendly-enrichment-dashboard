@@ -187,11 +187,35 @@ def discover_priority_links(home_url, max_pages):
     return deduped[:max_pages]
 
 
+MAX_DOWNLOAD_BYTES = int(os.getenv("MAX_DOWNLOAD_BYTES", str(3 * 1024 * 1024)))  # 3 MB cap
+
+
 def fetch_html(url):
+    # Stream and HARD-CAP the download size. Without this a single huge page (or a
+    # server that streams endlessly) loads fully into RAM via resp.text; with many
+    # concurrent workers a few of those at once can OOM the box. We read at most
+    # MAX_DOWNLOAD_BYTES and decode that, skipping obvious non-HTML responses.
     try:
-        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=8, allow_redirects=True)
-        if resp.status_code < 400 and resp.text:
-            return resp.text
+        with requests.get(url, headers=BROWSER_HEADERS, timeout=8,
+                          allow_redirects=True, stream=True) as resp:
+            if resp.status_code >= 400:
+                return ""
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            if ctype and ("html" not in ctype and "text" not in ctype
+                          and "xml" not in ctype):
+                return ""
+            chunks, total = [], 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= MAX_DOWNLOAD_BYTES:
+                    break
+            raw = b"".join(chunks)
+            if not raw:
+                return ""
+            return raw.decode(resp.encoding or "utf-8", errors="replace")
     except Exception:
         pass
     return ""
