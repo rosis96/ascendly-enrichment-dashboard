@@ -15,7 +15,7 @@ from typing import Optional
 
 import json
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse, Response, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, Response, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -253,7 +253,9 @@ MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))
 # Classification is the cheapest pass (homepage scrape + tiny model call) so it can
 # run with very high concurrency. Separate, higher ceiling just for classify.
 MAX_CLASSIFY_WORKERS = int(os.getenv("MAX_CLASSIFY_WORKERS", "500"))
-CLASSIFY_WORKERS = int(os.getenv("CLASSIFY_WORKERS", "100"))
+# Lowered: each concurrent classify holds a parsed HTML page in memory; 100 at once
+# OOMs a small container. 40 is a safe default; raise via env if you add RAM.
+CLASSIFY_WORKERS = int(os.getenv("CLASSIFY_WORKERS", "40"))
 # Most leads the per-list grid endpoint will load at once (huge lists are browsed
 # via the paginated Database view). Prevents OOM on 100k+ lists.
 LIST_LEAD_CAP = int(os.getenv("LIST_LEAD_CAP", "1000"))
@@ -334,7 +336,7 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
     _write_job(job_id, 0, {}, status="running")
     agg, done = {}, 0
     workers = max(1, workers)
-    window = workers * 3          # max futures in flight at once
+    window = workers * 2          # max futures in flight at once (bounds memory)
     last_write = 0.0
 
     def task(lid):
@@ -1613,41 +1615,61 @@ def reoon_balance():
 
 
 def _do_export(list_id, wanted):
-    s = SessionLocal()
+    # header info + filename from a small sample (memory-safe), then stream rows
+    s0 = SessionLocal()
     try:
-        l = s.get(LeadList, list_id)
+        l = s0.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        q = s.query(Lead).filter_by(list_id=list_id)
-        if wanted:  # export only the selected / filtered leads
-            q = q.filter(Lead.id.in_(wanted))
-        leads = q.all()
-        hidden = _hidden_names(s, l.variable_set)
-        custom_names = [c.get("name") for c in _custom_specs(s, l.variable_set)]
+        fname = (l.name or "list").replace(" ", "_").replace("/", "-") + ".csv"
+        vset = l.variable_set
+        hidden = _hidden_names(s0, vset)
+        custom_names = [c.get("name") for c in _custom_specs(s0, vset)]
         cset = set(custom_names)
-        out_keys = [k for k in ea.output_keys_for(_base_of(s, l.variable_set))
+        out_keys = [k for k in ea.output_keys_for(_base_of(s0, vset))
                     if k not in hidden and k not in cset] + custom_names
-        # standard fields first, then custom data columns, then enrichment
+
+        def base_query(s):
+            q = s.query(Lead).filter_by(list_id=list_id)
+            if wanted:
+                q = q.filter(Lead.id.in_(wanted))
+            return q.order_by(Lead.id)
+
+        sample = base_query(s0).limit(500).all()
         raw_cols = []
-        for ld in leads:
+        for ld in sample:
             for k in (ld.data or {}).keys():
                 if k not in raw_cols and k.lower() not in _STD_RAW_SKIP:
                     raw_cols.append(k)
-        header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Safe to send"] + out_keys
+    finally:
+        s0.close()
+    header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Safe to send"] + out_keys
+
+    def gen():
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(header)
-        for ld in leads:
-            row = _std_export_row(ld)
-            row += [(ld.data or {}).get(c, "") for c in raw_cols]
-            row.append((ld.verify or {}).get("is_safe_to_send", ""))
-            row += [(ld.result or {}).get(k, "") for k in out_keys]
-            w.writerow(row)
-        fname = (l.name or "list").replace(" ", "_").replace("/", "-") + ".csv"
-        return Response(content=buf.getvalue(), media_type="text/csv",
-                        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
-    finally:
-        s.close()
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        s = SessionLocal()
+        try:
+            q = s.query(Lead).filter_by(list_id=list_id)
+            if wanted:
+                q = q.filter(Lead.id.in_(wanted))
+            for ld in q.order_by(Lead.id).yield_per(1000):
+                row = _std_export_row(ld)
+                row += [(ld.data or {}).get(c, "") for c in raw_cols]
+                row.append((ld.verify or {}).get("is_safe_to_send", ""))
+                row += [(ld.result or {}).get(k, "") for k in out_keys]
+                w.writerow(row)
+                if buf.tell() > 64000:
+                    yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            if buf.tell():
+                yield buf.getvalue()
+        finally:
+            s.close()
+
+    return StreamingResponse(gen(), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.get("/api/lists/{list_id}/export")
@@ -1816,31 +1838,51 @@ def database_view(slug: str, body: DBFilters):
 
 @app.post("/api/workspaces/{slug}/database/export")
 def database_export(slug: str, body: DBFilters):
-    s = SessionLocal()
+    """Streamed export: rows are pulled from the DB in batches and written out as
+    they go, so exporting hundreds of thousands of leads never loads them all into
+    memory at once (that was an OOM source)."""
+    f = body.dict()
+    ids = list(body.lead_ids or [])
+
+    def base_query(s):
+        if ids:
+            return s.query(Lead).filter(Lead.id.in_(ids)).order_by(Lead.id)
+        return _database_query(s, _ws_list_ids(s, slug), f).order_by(Lead.id)
+
+    # column header from a small sample only (memory-safe)
+    s0 = SessionLocal()
     try:
-        if body.lead_ids:
-            leads = s.query(Lead).filter(Lead.id.in_(body.lead_ids)).order_by(Lead.id).all()
-        else:
-            list_ids = _ws_list_ids(s, slug)
-            leads = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
+        sample = base_query(s0).limit(500).all()
         raw_cols = []
-        for ld in leads:
+        for ld in sample:
             for k in (ld.data or {}).keys():
                 if k not in raw_cols and k.lower() not in _STD_RAW_SKIP:
                     raw_cols.append(k)
-        header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Title Check", "Safe to send"]
+    finally:
+        s0.close()
+    header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Title Check", "Safe to send"]
+
+    def gen():
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(header)
-        for ld in leads:
-            row = _std_export_row(ld)
-            row += [(ld.data or {}).get(c, "") for c in raw_cols]
-            row += [ld.title_status or "", (ld.verify or {}).get("is_safe_to_send", "")]
-            w.writerow(row)
-        return Response(content=buf.getvalue(), media_type="text/csv",
-                        headers={"Content-Disposition": f'attachment; filename="{slug}_database.csv"'})
-    finally:
-        s.close()
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        s = SessionLocal()
+        try:
+            for ld in base_query(s).yield_per(1000):
+                row = _std_export_row(ld)
+                row += [(ld.data or {}).get(c, "") for c in raw_cols]
+                row += [ld.title_status or "", (ld.verify or {}).get("is_safe_to_send", "")]
+                w.writerow(row)
+                if buf.tell() > 64000:
+                    yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            if buf.tell():
+                yield buf.getvalue()
+        finally:
+            s.close()
+
+    return StreamingResponse(gen(), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{slug}_database.csv"'})
 
 
 class DBSendBody(DBFilters):
@@ -1857,29 +1899,33 @@ def database_send(slug: str, body: DBSendBody):
     try:
         if not (s.query(Workspace).filter_by(slug=body.target).first() or ea.engine_set_exists(body.target)):
             raise HTTPException(404, "Target workspace not found")
+        # Read just the source IDs first (cheap), then copy in batches. Avoids an
+        # open streaming cursor during writes (which deadlocks) and avoids loading
+        # all source rows into memory at once.
         if body.lead_ids:
-            src = s.query(Lead).filter(Lead.id.in_(body.lead_ids)).all()
+            src_ids = list(body.lead_ids)
         else:
             list_ids = _ws_list_ids(s, slug)
-            src = _database_query(s, list_ids, body.dict()).order_by(Lead.id).all()
-        if not src:
+            src_ids = [lid for (lid,) in _database_query(s, list_ids, body.dict())
+                       .with_entities(Lead.id).all()]
+        if not src_ids:
             return {"copied": 0}
-        name = (body.list_name or "").strip() or f"From {slug} ({len(src)})"
+        name = (body.list_name or "").strip() or f"From {slug}"
         nl = LeadList(name=name, variable_set=body.target)
         s.add(nl)
         s.commit()
         nlid = nl.id
         n = 0
-        for ld in src:
-            s.add(Lead(list_id=nlid, first_name=ld.first_name, last_name=ld.last_name,
-                       title=ld.title, company=ld.company, website=ld.website, email=ld.email,
-                       data=ld.data, industry=ld.industry, esp=ld.esp, employees=ld.employees,
-                       country=ld.country, state=ld.state, seniority=ld.seniority,
-                       title_status=ld.title_status, verify=ld.verify, email_status=ld.email_status))
-            n += 1
-            if n % 1000 == 0:
-                s.commit()
-        s.commit()
+        for i in range(0, len(src_ids), 1000):
+            chunk = src_ids[i:i + 1000]
+            for ld in s.query(Lead).filter(Lead.id.in_(chunk)).all():
+                s.add(Lead(list_id=nlid, first_name=ld.first_name, last_name=ld.last_name,
+                           title=ld.title, company=ld.company, website=ld.website, email=ld.email,
+                           data=ld.data, industry=ld.industry, esp=ld.esp, employees=ld.employees,
+                           country=ld.country, state=ld.state, seniority=ld.seniority,
+                           title_status=ld.title_status, verify=ld.verify, email_status=ld.email_status))
+                n += 1
+            s.commit()
         return {"copied": n, "list_id": nlid, "list_name": name, "target": body.target}
     finally:
         s.close()

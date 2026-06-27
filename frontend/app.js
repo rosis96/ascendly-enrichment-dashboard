@@ -805,7 +805,7 @@ async function runDbJob(kind){
   try{
     r = await api(`/api/workspaces/${slug}/run-all`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, workers: kind === "classify" ? 100 : (kind === "esp" ? 40 : null) }) });
+      body: JSON.stringify({ kind, workers: kind === "classify" ? 40 : (kind === "esp" ? 30 : null) }) });
   }catch(e){ setMsg("Failed to start"); return; }
   if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
   pollDbJob(r.job_id, kind);
