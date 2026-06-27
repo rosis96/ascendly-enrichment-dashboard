@@ -1579,22 +1579,32 @@ def split_by_industry(list_id: int):
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        leads = s.query(Lead).filter_by(list_id=list_id).all()
-        groups = {}
-        for ld in leads:
-            groups.setdefault(ld.industry or "Unclassified", []).append(ld)
+        # distinct industries present (cheap), then copy each group in batches so a
+        # huge list doesn't load all leads into memory at once.
+        industries = [row[0] for row in
+                      s.query(Lead.industry).filter_by(list_id=list_id).distinct().all()]
         created = []
-        for ind, items in sorted(groups.items()):
-            nl = LeadList(name=f"{l.name} · {ind}", variable_set=l.variable_set)
+        for ind in sorted(industries, key=lambda x: (x or "")):
+            label = ind or "Unclassified"
+            cond = (Lead.industry == ind) if ind else ((Lead.industry == None) | (Lead.industry == ""))  # noqa: E711
+            ids = [i for (i,) in s.query(Lead.id).filter(Lead.list_id == list_id).filter(cond).all()]
+            if not ids:
+                continue
+            nl = LeadList(name=f"{l.name} · {label}", variable_set=l.variable_set)
             s.add(nl)
             s.flush()
-            for ld in items:
-                s.add(Lead(list_id=nl.id, first_name=ld.first_name, last_name=ld.last_name,
-                           title=ld.title, company=ld.company, website=ld.website, email=ld.email,
-                           data=ld.data, result=ld.result, verify=ld.verify,
-                           email_status=ld.email_status, industry=ld.industry, status=ld.status))
-            created.append({"industry": ind, "count": len(items)})
-        s.commit()
+            nlid = nl.id
+            cnt = 0
+            for j in range(0, len(ids), 1000):
+                chunk = ids[j:j + 1000]
+                for ld in s.query(Lead).filter(Lead.id.in_(chunk)).all():
+                    s.add(Lead(list_id=nlid, first_name=ld.first_name, last_name=ld.last_name,
+                               title=ld.title, company=ld.company, website=ld.website, email=ld.email,
+                               data=ld.data, result=ld.result, verify=ld.verify,
+                               email_status=ld.email_status, industry=ld.industry, status=ld.status))
+                    cnt += 1
+                s.commit()
+            created.append({"industry": label, "count": cnt})
         return {"created": created}
     finally:
         s.close()
