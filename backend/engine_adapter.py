@@ -12,6 +12,7 @@ real strict gate (junior titles are rejected before any "scrape").
 import os
 import re
 import json
+import hashlib
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE_DIR = os.path.join(BASE_DIR, "engine")
@@ -523,6 +524,94 @@ def _classify_real(lead, tax):
         return _snap_taxonomy(label, tax), 0.0004
     except Exception:
         return "", 0.0
+
+
+def _domain_of(lead):
+    """Best-effort domain from website or email (no network)."""
+    site = (lead.get("website") or "").strip().lower()
+    if site:
+        site = re.sub(r"^https?://", "", site).split("/")[0]
+        site = re.sub(r"^www\.", "", site)
+        if site:
+            return site
+    email = (lead.get("email") or "").strip().lower()
+    if "@" in email:
+        return email.split("@", 1)[1]
+    return ""
+
+
+# Free / generic mailbox domains carry no industry signal on their own.
+_GENERIC_DOMAINS = {
+    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com", "icloud.com",
+    "live.com", "msn.com", "comcast.net", "me.com", "protonmail.com", "gmx.com",
+}
+
+
+def classify_industry_batch(leads, tax=None):
+    """Classify MANY leads in ONE OpenAI call from company name + domain only —
+    no website scraping. Returns (labels, total_cost) where labels is a list the
+    same length/order as `leads`. This is the fast path for huge databases: one
+    cheap call covers ~25 leads instead of 25 scrapes + 25 calls."""
+    tax = tax or taxonomy()
+    n = len(leads)
+    labels = [""] * n
+
+    # Which leads have any usable signal? The rest get "Other / Unclear" for free.
+    idx_usable, lines = [], []
+    for i, ld in enumerate(leads):
+        company = (ld.get("company") or "").strip()
+        dom = _domain_of(ld)
+        dom_signal = dom if dom and dom not in _GENERIC_DOMAINS else ""
+        if not company and not dom_signal:
+            labels[i] = "Other / Unclear"
+            continue
+        idx_usable.append(i)
+        lines.append(f"{len(idx_usable)}. company: {company or '(unknown)'} | domain: {dom_signal or '(none)'}")
+
+    if not idx_usable:
+        return labels, 0.0
+
+    if os.getenv("ENRICH_MODE", "demo").lower() != "real":
+        for i in idx_usable:
+            labels[i], _ = _classify_demo(leads[i], tax)
+        return labels, 0.0
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        return labels, 0.0
+
+    listing = "\n".join(f"- {t}" for t in tax)
+    prompt = (
+        "Classify each company's primary industry using ONLY this list:\n"
+        f"{listing}\n\n"
+        "Use the company name and domain to infer the industry. If genuinely "
+        "unclear, use \"Other / Unclear\".\n"
+        "Reply with ONLY a JSON object mapping each number to one exact industry "
+        "name from the list. Example: {\"1\":\"SaaS & Software\",\"2\":\"Construction\"}\n\n"
+        "COMPANIES:\n" + "\n".join(lines)
+    )
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=6, timeout=90.0)
+        resp = client.chat.completions.create(
+            model=os.getenv("CLASSIFY_MODEL", "gpt-4o-mini"),
+            max_completion_tokens=min(4000, 40 * len(idx_usable) + 200),
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You classify companies into a fixed industry list. Output strict JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        raw = resp.choices[0].message.content or "{}"
+        data = json.loads(raw)
+    except Exception:
+        return labels, 0.0
+
+    for pos, i in enumerate(idx_usable, start=1):
+        ans = data.get(str(pos)) or data.get(pos)
+        labels[i] = _snap_taxonomy(ans, tax) if ans else "Other / Unclear"
+    # ~ one cheap call for the whole batch
+    return labels, 0.0004 * len(idx_usable)
 
 
 def load_variable_set(name):

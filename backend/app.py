@@ -259,6 +259,12 @@ CLASSIFY_WORKERS = int(os.getenv("CLASSIFY_WORKERS", "40"))
 # Most leads the per-list grid endpoint will load at once (huge lists are browsed
 # via the paginated Database view). Prevents OOM on 100k+ lists.
 LIST_LEAD_CAP = int(os.getenv("LIST_LEAD_CAP", "1000"))
+# Fast classify: leads per single OpenAI call (no scraping). One call ~= this many
+# leads, so throughput = workers * batch leads per round-trip.
+CLASSIFY_BATCH = int(os.getenv("CLASSIFY_BATCH", "25"))
+# Fast classify does no scraping (tiny memory), so it can run far more concurrent
+# API calls than the deep/scraping path.
+CLASSIFY_FAST_WORKERS = int(os.getenv("CLASSIFY_FAST_WORKERS", "60"))
 
 
 def _clamp_workers(n, default, maximum=None):
@@ -522,6 +528,87 @@ def _run_classify_job(job_id, target_ids, workers=None):
     from functools import partial
     _process_concurrent(job_id, target_ids, partial(_classify_one, tax=ea.taxonomy()),
                         _clamp_workers(workers, CLASSIFY_WORKERS, MAX_CLASSIFY_WORKERS))
+
+
+def _classify_batch(id_chunk, tax):
+    """Classify a CHUNK of leads in one OpenAI call (no scraping). Reads the chunk,
+    releases the DB during the call, then bulk-writes the labels."""
+    s = SessionLocal()
+    try:
+        rows = (s.query(Lead.id, Lead.company, Lead.website, Lead.email)
+                .filter(Lead.id.in_(id_chunk)).all())
+    finally:
+        s.close()
+    if not rows:
+        return None
+    leads = [{"company": c, "website": w, "email": e} for (_id, c, w, e) in rows]
+    labels, cost = ea.classify_industry_batch(leads, tax)
+    mappings, classified, unclear = [], 0, 0
+    for (lid, *_), label in zip(rows, labels):
+        label = label or "Other / Unclear"
+        mappings.append({"id": lid, "industry": label})
+        if label == "Other / Unclear":
+            unclear += 1
+        else:
+            classified += 1
+    s = SessionLocal()
+    try:
+        s.bulk_update_mappings(Lead, mappings)
+        s.commit()
+    finally:
+        s.close()
+    return {"cost": cost, "classified": classified, "unclear": unclear}
+
+
+def _run_classify_fast_job(job_id, target_ids, workers=None):
+    """Fast database classify: batches many leads per OpenAI call and runs many
+    batches concurrently. No website scraping, so it's 10-50x faster and uses
+    little memory. Bounded window + per-lead progress (counts whole batches)."""
+    from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
+    tax = ea.taxonomy()
+    workers = _clamp_workers(workers, CLASSIFY_FAST_WORKERS, MAX_CLASSIFY_WORKERS)
+    chunks = [target_ids[i:i + CLASSIFY_BATCH] for i in range(0, len(target_ids), CLASSIFY_BATCH)]
+    _write_job(job_id, 0, {}, status="running")
+    agg, done, last_write = {}, 0, 0.0
+    window = workers * 2
+
+    def task(chunk):
+        if job_id in CANCEL:
+            return None, 0
+        try:
+            return _classify_batch(chunk, tax), len(chunk)
+        except Exception:
+            return {"_error": 1}, len(chunk)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            it = iter(chunks)
+            inflight = set()
+            for _ in range(window):
+                ch = next(it, None)
+                if ch is None:
+                    break
+                inflight.add(ex.submit(task, ch))
+            while inflight:
+                completed, inflight = wait(inflight, return_when=FIRST_COMPLETED)
+                for fut in completed:
+                    r, nch = fut.result()
+                    done += nch
+                    if r:
+                        for k, v in r.items():
+                            agg[k] = agg.get(k, 0) + v
+                    if job_id not in CANCEL:
+                        ch = next(it, None)
+                        if ch is not None:
+                            inflight.add(ex.submit(task, ch))
+                now = time.time()
+                if now - last_write >= 2.0:
+                    _write_job(job_id, done, agg)
+                    last_write = now
+        _write_job(job_id, done, agg, status="cancelled" if job_id in CANCEL else "done")
+    except Exception:
+        _write_job(job_id, done, agg, status="error")
+    finally:
+        CANCEL.discard(job_id)
 
 
 def _esp_one(lead_id):
@@ -1946,6 +2033,7 @@ class RunAllBody(BaseModel):
     workers: Optional[int] = None
     skip_done: bool = True
     limit: Optional[int] = None    # process at most this many leads this run (chunking)
+    mode: str = "fast"             # classify only: fast (no scrape, batched) | deep (reads site)
 
 
 @app.post("/api/workspaces/{slug}/run-all")
@@ -1985,7 +2073,8 @@ def run_all(slug: str, body: RunAllBody):
         s.close()
     if target_ids:
         if kind == "classify":
-            threading.Thread(target=_run_classify_job, args=(job_id, target_ids, body.workers), daemon=True).start()
+            runner = _run_classify_job if (body.mode or "fast").lower() == "deep" else _run_classify_fast_job
+            threading.Thread(target=runner, args=(job_id, target_ids, body.workers), daemon=True).start()
         elif kind == "esp":
             threading.Thread(target=_run_esp_job, args=(job_id, target_ids, body.workers), daemon=True).start()
         else:

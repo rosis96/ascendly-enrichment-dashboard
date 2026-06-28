@@ -627,6 +627,10 @@ function renderDatabase(){
     `<button class="gbtn" id="dbTitleAll">✓ Title check</button>` +
     `<button class="gbtn" id="dbEspAll">@ ESP</button>` +
     `<button class="gbtn" id="dbClassifyAll">▤ Classify</button>` +
+    `<select id="dbClassifyMode" title="Fast = name + domain only, batched, no website reading (much faster). Deep = reads each website (slower, more accurate).">` +
+      `<option value="fast" selected>Fast (name + domain)</option>` +
+      `<option value="deep">Deep (reads website)</option>` +
+    `</select>` +
     `<input id="dbRunLimit" type="number" min="1" step="1000" placeholder="max leads (blank = all)" title="How many leads to process this run. Leave blank to do all remaining." style="width:170px" />` +
     `<span class="muted" id="dbJobMsg"></span></div>` +
     `<div class="dbfilters">
@@ -802,14 +806,18 @@ async function runDbJob(kind){
   const setMsg = t => { const m = $("dbJobMsg"); if(m) m.textContent = t; };
   const limEl = $("dbRunLimit");
   const limit = limEl && limEl.value ? Math.max(1, parseInt(limEl.value, 10) || 0) : null;
+  const modeEl = $("dbClassifyMode");
+  const mode = modeEl ? modeEl.value : "fast";
   const limTxt = limit ? `the next ${limit.toLocaleString()}` : "every";
-  if(kind === "classify" && !confirm(`Classify ${limTxt} not-yet-classified lead(s) in the database? This uses OpenAI credit.`)) return;
+  if(kind === "classify" && !confirm(`Classify ${limTxt} not-yet-classified lead(s) in ${mode === "deep" ? "Deep (reads website)" : "Fast (name + domain)"} mode? This uses OpenAI credit.`)) return;
   setMsg("Starting…");
+  // Fast classify batches ~25 leads/call, so fewer "workers" still = high throughput.
+  const workers = kind === "classify" ? (mode === "deep" ? 40 : 60) : (kind === "esp" ? 30 : null);
   let r;
   try{
     r = await api(`/api/workspaces/${slug}/run-all`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, limit, workers: kind === "classify" ? 40 : (kind === "esp" ? 30 : null) }) });
+      body: JSON.stringify({ kind, limit, mode, workers }) });
   }catch(e){ setMsg("Failed to start"); return; }
   if(!r.job_id || !r.count){ setMsg("Nothing to run — all leads already done"); return; }
   pollDbJob(r.job_id, kind);
