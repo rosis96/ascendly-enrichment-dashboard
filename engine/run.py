@@ -273,7 +273,12 @@ def scrape_url(url, use_cache=True):
 
 
 def scrape_company(website_url, max_pages, use_cache=True):
-    urls = discover_priority_links(website_url, max_pages=max_pages)
+    # For a single page (e.g. industry classification) skip link discovery, which
+    # would fetch the homepage an extra time just to find sub-pages we won't use.
+    if max_pages <= 1:
+        urls = [website_url]
+    else:
+        urls = discover_priority_links(website_url, max_pages=max_pages)
     parts = []
     scraped_urls = []
 

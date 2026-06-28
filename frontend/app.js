@@ -627,10 +627,11 @@ function renderDatabase(){
     `<button class="gbtn" id="dbTitleAll">✓ Title check</button>` +
     `<button class="gbtn" id="dbEspAll">@ ESP</button>` +
     `<button class="gbtn" id="dbClassifyAll">▤ Classify</button>` +
-    `<select id="dbClassifyMode" title="Fast = name + domain only, batched, no website reading (much faster). Deep = reads each website (slower, more accurate).">` +
-      `<option value="fast" selected>Fast (name + domain)</option>` +
-      `<option value="deep">Deep (reads website)</option>` +
+    `<select id="dbClassifyMode" title="Deep = reads each website (most accurate). Fast = name + domain only, batched, no website reading (much faster, less accurate).">` +
+      `<option value="deep" selected>Deep (reads website)</option>` +
+      `<option value="fast">Fast (name + domain)</option>` +
     `</select>` +
+    `<input id="dbWorkers" type="number" min="1" max="500" step="10" placeholder="workers" title="How many sites to read at once. Higher = faster. 150–300 is safe; 500 max." style="width:90px" />` +
     `<input id="dbRunLimit" type="number" min="1" step="1000" placeholder="max leads (blank = all)" title="How many leads to process this run. Leave blank to do all remaining." style="width:170px" />` +
     `<span class="muted" id="dbJobMsg"></span></div>` +
     `<div class="dbfilters">
@@ -807,12 +808,16 @@ async function runDbJob(kind){
   const limEl = $("dbRunLimit");
   const limit = limEl && limEl.value ? Math.max(1, parseInt(limEl.value, 10) || 0) : null;
   const modeEl = $("dbClassifyMode");
-  const mode = modeEl ? modeEl.value : "fast";
+  const mode = modeEl ? modeEl.value : "deep";
+  const wEl = $("dbWorkers");
+  const wInput = wEl && wEl.value ? Math.max(1, Math.min(500, parseInt(wEl.value, 10) || 0)) : null;
   const limTxt = limit ? `the next ${limit.toLocaleString()}` : "every";
   if(kind === "classify" && !confirm(`Classify ${limTxt} not-yet-classified lead(s) in ${mode === "deep" ? "Deep (reads website)" : "Fast (name + domain)"} mode? This uses OpenAI credit.`)) return;
   setMsg("Starting…");
-  // Fast classify batches ~25 leads/call, so fewer "workers" still = high throughput.
-  const workers = kind === "classify" ? (mode === "deep" ? 40 : 60) : (kind === "esp" ? 30 : null);
+  // Deep is network-bound (each site is read), so high concurrency is the speed lever.
+  const workers = kind === "classify"
+    ? (wInput || (mode === "deep" ? 200 : 60))
+    : (kind === "esp" ? 30 : null);
   let r;
   try{
     r = await api(`/api/workspaces/${slug}/run-all`, {
