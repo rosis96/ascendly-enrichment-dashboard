@@ -989,97 +989,71 @@ async function saveConfig(msgId){
   }catch(e){ if(m){ m.textContent = "Save failed"; m.style.color = "var(--red-tx)"; } }
 }
 
-// ---- Section 1: Client Profile ----
+// ---- JSON-driven sections: paste full JSON per section, applied directly ----
+async function fetchSectionJson(){
+  return await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/section-json`);
+}
+
+// Generic JSON editor used by Client Profile, ICP, and Format.
+async function renderJsonSection(opts){
+  // opts: { view, section, title, sub, help, container, back }
+  showView(opts.view);
+  $("viewTitle").textContent = opts.title;
+  $("viewSub").textContent = opts.sub;
+  const box = $(opts.container || "builderView");
+  box.innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
+  let g;
+  try{ g = await fetchSectionJson(); }
+  catch(e){ box.innerHTML = `<div class="muted" style="padding:18px">Couldn't load.</div>`; return; }
+  if(g.is_workspace === false){
+    box.innerHTML = `<div class="bhelp">JSON config is available for your own workspaces (not built-in clients). Switch to or create a workspace.</div>`;
+    return;
+  }
+  const current = g[opts.section] || {};
+  const template = (g.templates || {})[opts.section] || {};
+  const has = current && (Array.isArray(current) ? current.length : Object.keys(current).length);
+  const pretty = has ? JSON.stringify(current, null, 2) : "";
+  box.innerHTML =
+    (opts.back ? `<div style="margin-bottom:10px"><a id="jBack" style="color:var(--acc-tx);cursor:pointer">← Back</a></div>` : "") +
+    `<div class="bhelp">${opts.help} <a id="jTpl" style="color:var(--acc-tx);cursor:pointer">Load template</a></div>` +
+    `<textarea id="jBox" class="jsonbox" rows="22" spellcheck="false" placeholder="Paste JSON here…">${esc(pretty)}</textarea>` +
+    `<div class="bsave"><button class="run" id="jSave">Save JSON</button><span class="muted" id="jMsg"></span></div>`;
+  if($("jBack")) $("jBack").onclick = opts.back;
+  $("jTpl").onclick = () => {
+    if($("jBox").value.trim() && !confirm("Replace the editor contents with the template?")) return;
+    $("jBox").value = JSON.stringify(template, null, 2);
+  };
+  $("jSave").onclick = async () => {
+    const m = $("jMsg");
+    const raw = $("jBox").value.trim();
+    let data = {};
+    if(raw){ try{ data = JSON.parse(raw); }catch(e){ m.textContent = "Invalid JSON: " + e.message; m.style.color = "var(--red-tx)"; return; } }
+    m.textContent = "Saving…"; m.style.color = "var(--hint)";
+    try{
+      const r = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/section-json`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: opts.section, data }) });
+      m.textContent = "Saved ✓" + (r.variables_imported != null ? ` · ${r.variables_imported} variable(s) imported` : "");
+      m.style.color = "var(--acc-tx)";
+      if(opts.section === "format"){ try{ await loadEnrichments(); }catch(e){} }
+    }catch(e){ m.textContent = "Save failed: " + (e.message || ""); m.style.color = "var(--red-tx)"; }
+  };
+}
+
 async function loadClientProfile(){
-  showView("client");
-  $("viewTitle").textContent = "Client Profile";
-  $("viewSub").textContent = `${esc(state.client || state.variableSet)} — explains the client and the offer only`;
-  $("builderView").innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
-  try{ await loadConfigSections(); }catch(e){ $("builderView").innerHTML = `<div class="muted" style="padding:18px">Couldn't load.</div>`; return; }
-  renderClientProfile();
+  await renderJsonSection({
+    view: "client", section: "client_profile",
+    title: "Client Profile",
+    sub: `${esc(state.client || state.variableSet)} — paste the client profile JSON`,
+    help: "The engine writer profile (who we're selling FOR). Paste your client-profile JSON — e.g. client_name, service_brief, main_offer, what_we_are_pitching, target_outcome. You can also include an <b>icp_definition</b> here, or keep it in the ICP section." });
 }
 
-function renderClientProfile(){
-  const cp = cfg.sections.client_profile || {};
-  const rows = CLIENT_PROFILE_FIELDS.map(([k, label]) =>
-    `<label class="bf"><span class="bf-l">${esc(label)}</span>` +
-    `<textarea data-cp="${k}" rows="3" placeholder="${esc(label)}…">${esc(cp[k] || "")}</textarea></label>`).join("");
-  $("builderView").innerHTML =
-    `<div class="bhelp">This section only describes the client and their offer. ICP/Non-ICP logic lives in the ICP / Non-ICP section.</div>` +
-    `<div class="bgrid">${rows}</div>` +
-    `<div class="bsave"><button class="run" id="cpSave">Save client profile</button><span class="muted" id="cpMsg"></span></div>`;
-  $("cpSave").onclick = () => {
-    const cp2 = {};
-    $("builderView").querySelectorAll("[data-cp]").forEach(el => cp2[el.dataset.cp] = el.value);
-    cfg.sections.client_profile = cp2;
-    saveConfig("cpMsg");
-  };
-}
-
-// ---- Section 2: ICP / Non-ICP ----
 async function loadIcp(){
-  showView("icp");
-  $("viewTitle").textContent = "ICP / Non-ICP";
-  $("viewSub").textContent = "The single source of truth for deciding if a lead is worth enriching";
-  $("builderView").innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
-  try{ await loadConfigSections(); }catch(e){ $("builderView").innerHTML = `<div class="muted" style="padding:18px">Couldn't load.</div>`; return; }
-  renderIcp();
-}
-
-function icpListBlock(title, help, key, items){
-  const rows = (items || []).map((v, i) =>
-    `<div class="bitem-row"><input data-il="${key}" value="${esc(v)}" /><a class="bitem-x" data-rm="${key}:${i}">remove</a></div>`).join("");
-  return `<div class="bf-l" style="margin-top:8px">${esc(title)}</div>` +
-    `<div class="bhelp" style="margin:2px 0 8px">${esc(help)}</div>` +
-    `<div class="ilist" data-list="${key}">${rows}</div>` +
-    `<button class="gbtn" data-add="${key}" style="margin-top:6px">+ Add</button>`;
-}
-
-function renderIcp(){
-  const icp = cfg.sections.icp || {};
-  const outFields = (cfg.outputFields || []).map(f =>
-    `<span class="tag" style="background:var(--acc-bg);color:var(--acc-tx);margin:2px">${esc(f.replace(/_/g," "))}</span>`).join(" ");
-  $("builderView").innerHTML =
-    `<div class="bhelp">Applied in order: <b>Hard Rejection Rules first</b> (any match → Non-ICP), then ICP/Non-ICP criteria and the qualification questions. Returns one of: ICP · Possible ICP · Needs Review · Non-ICP. Editing here changes classification immediately. ` +
-    `<a id="icpLoadExample" style="color:var(--acc-tx);cursor:pointer">Load example template</a></div>` +
-    `<label class="bf"><span class="bf-l">ICP Description — who we want to target</span><textarea id="icpDesc" rows="4">${esc(icp.icp_description || "")}</textarea></label>` +
-    `<label class="bf" style="margin-top:12px"><span class="bf-l">Non-ICP Description — who we do NOT target</span><textarea id="nonIcpDesc" rows="4">${esc(icp.non_icp_description || "")}</textarea></label>` +
-    `<div class="card" style="margin-top:14px">${icpListBlock("Hard Rejection Rules", "If a company matches ANY of these, it is automatically Non-ICP.", "hard_rejection_rules", icp.hard_rejection_rules)}</div>` +
-    `<div class="card" style="margin-top:12px">${icpListBlock("Qualification Questions", "The AI answers these before deciding. Last one should be the final decision.", "qualification_questions", icp.qualification_questions)}</div>` +
-    `<div class="card" style="margin-top:12px"><div class="bf-l">ICP Output Fields <span class="muted">— returned per lead</span></div><div style="margin-top:8px">${outFields}</div></div>` +
-    `<div class="bsave"><button class="run" id="icpSave">Save ICP configuration</button><span class="muted" id="icpMsg"></span></div>`;
-  wireIcp();
-}
-
-function icpCollect(){
-  const icp = cfg.sections.icp || {};
-  icp.icp_description = $("icpDesc").value;
-  icp.non_icp_description = $("nonIcpDesc").value;
-  ["hard_rejection_rules", "qualification_questions"].forEach(key => {
-    const arr = [];
-    $("builderView").querySelectorAll(`.ilist[data-list="${key}"] [data-il="${key}"]`).forEach(el => {
-      if(el.value.trim()) arr.push(el.value);
-    });
-    icp[key] = arr;
-  });
-  cfg.sections.icp = icp;
-}
-
-function wireIcp(){
-  $("builderView").querySelectorAll("[data-add]").forEach(b =>
-    b.onclick = () => { icpCollect(); const k = b.dataset.add; cfg.sections.icp[k] = (cfg.sections.icp[k] || []).concat([""]); renderIcp(); });
-  $("builderView").querySelectorAll("[data-rm]").forEach(a =>
-    a.onclick = () => { icpCollect(); const [k, i] = a.dataset.rm.split(":"); cfg.sections.icp[k].splice(parseInt(i, 10), 1); renderIcp(); });
-  const ex = $("icpLoadExample");
-  if(ex) ex.onclick = () => {
-    if(!confirm("Load the example hard rejection rules and qualification questions into this workspace? (You can edit or remove them, then Save.)")) return;
-    icpCollect();
-    const e = cfg.icpExample || {};
-    cfg.sections.icp.hard_rejection_rules = (cfg.sections.icp.hard_rejection_rules || []).concat(e.hard_rejection_rules || []);
-    cfg.sections.icp.qualification_questions = (cfg.sections.icp.qualification_questions || []).concat(e.qualification_questions || []);
-    renderIcp();
-  };
-  $("icpSave").onclick = () => { icpCollect(); saveConfig("icpMsg"); };
+  await renderJsonSection({
+    view: "icp", section: "icp_definition",
+    title: "ICP / Non-ICP",
+    sub: "Paste the ICP JSON (icp_definition) — the single ICP brain",
+    help: "Drives the engine's strict ICP review for both classification and enrichment. Keys: <b>procedure</b> (steps), <b>icp_categories</b> (allowed fits), <b>hard_non_icp</b> (auto-reject), <b>default</b> (when unsure). Editing here changes how leads are judged immediately." });
 }
 
 // ============================ (legacy) WORKSPACE BUILDER ============================
@@ -1337,7 +1311,7 @@ function renderFormat(profile, fmt, sets, idByName){
     `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
-      ? `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste variables JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
+      ? `<button class="gbtn" id="fmtJsonBtn" style="margin-left:auto;padding:6px 11px">Paste Format JSON</button><button class="gbtn" id="dlJsonBtn" style="padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste variables JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
       : `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`) +
     `</div>`;
   h += builderHtml();
@@ -1368,6 +1342,10 @@ function renderFormat(profile, fmt, sets, idByName){
   if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
   if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
   if($("goClientBtn")) $("goClientBtn").onclick = loadClientProfile;
+  if($("fmtJsonBtn")) $("fmtJsonBtn").onclick = () => renderJsonSection({
+    view: "format", section: "format", container: "formatView", back: loadFormat,
+    title: "Format JSON", sub: "Paste the full format JSON (variables + global rules)",
+    help: "Sets your enrichment variables and global output rules in one paste. Keys: <b>variables</b> (array of {label, min_words, max_words, guidance, template, examples}), <b>global_output_rules</b>, temperature, max_tokens. Variables are imported into Formats." });
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
   if($("dlJsonBtn")) $("dlJsonBtn").onclick = downloadJson;
   if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };

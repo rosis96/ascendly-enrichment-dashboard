@@ -11,7 +11,7 @@ import base64
 import hmac
 import hashlib
 import threading
-from typing import Optional
+from typing import Optional, Any
 
 import json
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
@@ -107,51 +107,56 @@ def _clientprofile_to_profile(cp, ws_name, prev_profile):
     return prof
 
 
-def _icp_config_for(s, key):
-    """The workspace's ICP/Non-ICP configuration, or None if not meaningfully set.
-    When present it is the SINGLE source of truth for ICP classification."""
+def _icp_def_for(s, key):
+    """The pasted ICP icp_definition (engine strict-ICP format) for this workspace,
+    or None. This is the SINGLE ICP brain — the engine's native strict ICP review
+    runs from it. Stored in config sections['icp_definition'] (or inside the pasted
+    client-profile JSON)."""
     sections = _builder_sections(s, key)
-    icp = sections.get("icp") or {}
-    has_logic = bool((icp.get("icp_description") or "").strip()
-                     or (icp.get("non_icp_description") or "").strip()
-                     or [r for r in (icp.get("hard_rejection_rules") or []) if str(r).strip()])
-    if not has_logic:
-        return None
-    cp = sections.get("client_profile") or {}
-    icp = dict(icp)
-    icp["_client_profile"] = cp
-    return icp
+    icp = sections.get("icp_definition")
+    if isinstance(icp, dict) and (icp.get("procedure") or icp.get("icp_categories")
+                                  or icp.get("hard_non_icp")):
+        return icp
+    return None
+
+
+def _format_meta_for(s, key):
+    fmt = (_builder_sections(s, key).get("format") or {})
+    return fmt if isinstance(fmt, dict) else {}
 
 
 def _profile_for(s, key, base):
-    """Writer client profile. SOURCE OF TRUTH = the Client Profile section. Falls
-    back to legacy strategy/profile only when Client Profile isn't filled yet, so
-    unconfigured workspaces keep working. Old data is never deleted."""
+    """Engine writer profile, assembled JSON-first:
+      1) the pasted Client Profile JSON (Workspace.profile) is the authority;
+      2) the pasted ICP JSON (icp_definition) is attached so the engine's native
+         strict ICP review runs from it;
+      3) pasted Format global_output_rules are attached.
+    Falls back to the engine client profile only if nothing is configured."""
     ws = s.query(Workspace).filter_by(slug=key).first()
     sections = _builder_sections(s, key)
-    cp = sections.get("client_profile") or {}
-    if _section_nonempty(cp):
-        prev = dict(ws.profile or {}) if ws else {}
-        return _clientprofile_to_profile(cp, (ws.name if ws else key), prev)
-    # legacy fallbacks (older 'strategy' config, then the original profile)
-    strat = sections.get("strategy") or {}
-    if _section_nonempty(strat):
-        prof = {}
-        for pkey, skey in [("service_brief", "business_overview"), ("main_offer", "offers"),
-                           ("what_we_are_pitching", "positioning"), ("target_outcome", "objectives"),
-                           ("buyer_personas", "buyer_personas"), ("deal_size", "deal_size"),
-                           ("geo", "geo"), ("permanent_instructions", "instructions")]:
-            v = strat.get(skey)
-            if v:
-                prof[pkey] = v if isinstance(v, str) else json.dumps(v)
-        prof.setdefault("client_name", ws.name if ws else key)
-        return prof
-    if ws:
-        prof = dict(ws.profile or {})
-        prof.setdefault("client_name", ws.name)
-        return prof
-    client = (base or key).split("_")[0]
-    return ea.load_client_profile(client)
+
+    if ws and (ws.profile or {}):
+        prof = dict(ws.profile)
+    else:
+        # legacy field-based fallback, else engine profile file
+        cp = sections.get("client_profile") or {}
+        if _section_nonempty(cp):
+            prof = _clientprofile_to_profile(cp, (ws.name if ws else key), dict(ws.profile or {}) if ws else {})
+        elif ws:
+            prof = {}
+        else:
+            prof = dict(ea.load_client_profile((base or key).split("_")[0]) or {})
+    prof.setdefault("client_name", ws.name if ws else key)
+
+    # Attach the ICP brain + extra rules for the engine (single source of truth).
+    icp_def = _icp_def_for(s, key) or prof.get("icp_definition")
+    if icp_def:
+        prof["_icp_definition"] = icp_def
+    fmt = _format_meta_for(s, key)
+    rules = fmt.get("global_output_rules")
+    if isinstance(rules, list) and rules:
+        prof["_global_output_rules"] = rules
+    return prof
 
 init_db()
 
@@ -462,41 +467,9 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
 ICP_MAX_PAGES = int(os.getenv("ICP_MAX_PAGES", "1"))
 
 
-def _run_icp_gate(s, ld, icp_cfg):
-    """The dedicated ICP step. Scrapes the homepage, classifies via the workspace's
-    ICP config (hard rules first), stores the structured fields + the 3 indexed
-    columns, and routes by tier. Returns (proceed, inc, fields):
-      proceed=True  -> ICP / Possible ICP: continue to enrichment
-      proceed=False -> Non-ICP (reject) / Needs Review (queue): already stored."""
-    cp = icp_cfg.get("_client_profile") or {}
-    content = ea.scrape_text(ld.website or "", max_pages=ICP_MAX_PAGES)
-    fields, cost = ea.classify_icp(cp, icp_cfg, content)
-    decision = fields.get("final_decision") or "Needs Review"
-    ld.icp_decision = decision
-    try:
-        ld.icp_score = int(float(fields.get("fit_score") or 0))
-    except Exception:
-        ld.icp_score = 0
-    try:
-        ld.icp_confidence = int(float(fields.get("confidence") or 0))
-    except Exception:
-        ld.icp_confidence = 0
-    res = dict(ld.result or {})
-    res["_icp"] = fields
-    res["ICPReview"] = "ICP" if decision in ("ICP", "Possible ICP") else "Non-ICP"
-    res["ICP_reason"] = (fields.get("primary_icp_reason") or fields.get("primary_reject_reason")
-                         or fields.get("summary") or "")
-    ld.result = res
-    if decision in ("ICP", "Possible ICP"):
-        s.commit()
-        return True, {"cost": cost}, fields
-    ld.status = "review" if decision == "Needs Review" else "skipped"
-    s.commit()
-    inc = {"cost": cost, ("review" if decision == "Needs Review" else "nonicp"): 1}
-    return False, inc, fields
-
-
-def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=None, icp_cfg=None):
+def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=None):
+    """One ICP brain: the engine's native strict ICP review runs from the pasted
+    icp_definition (attached to `profile` by _profile_for). No separate gate."""
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -504,32 +477,15 @@ def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=
             return None
         ld.status = "running"
         s.commit()
-        # --- ICP gate (single source of truth) — only when configured ---
-        icp_fields = None
-        if icp_cfg:
-            proceed, inc0, icp_fields = _run_icp_gate(s, ld, icp_cfg)
-            if not proceed:
-                return inc0
-        # Writer runs WITHOUT its own ICP gating when the ICP engine already decided.
-        writer_profile = dict(profile or {})
-        if icp_cfg:
-            writer_profile["skip_icp"] = True
         extra_rules = _rules_list(s, variable_set) if variable_set else []
-        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, writer_profile, extra_rules)
+        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
         if res.get("_status") == "error" or not res.get("ICPReview"):
-            keep = {"_icp": icp_fields} if icp_fields else {}
-            keep.update({"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]})
-            ld.result = keep
+            ld.result = {"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]}
             ld.status = "error"
             s.commit()
             return {"error": 1, "cost": cost}
-        if icp_fields:                       # ICP belongs to the gate, not the writer:
-            res["_icp"] = icp_fields          # overwrite so the writer's old-style
-            res["ICPReview"] = "ICP"          # "Company manufactures..."/"not a service
-            res["ICP_reason"] = (icp_fields.get("primary_icp_reason")  # provider" reason
-                                 or icp_fields.get("summary")          # never shows.
-                                 or res.get("ICP_reason") or "")
         ld.result = res
+        ld.icp_decision = res.get("ICPReview") or ""   # keep the filterable column in sync
         ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
         s.commit()
         inc = {"cost": cost}
@@ -560,7 +516,7 @@ def _verify_one(lead_id, mode):
         s.close()
 
 
-def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None, icp_cfg=None):
+def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -581,34 +537,17 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             if not ld.result:
                 ld.status = "running"
                 s.commit()
-                # --- ICP gate (single source of truth) — only when configured ---
-                icp_fields = None
-                if icp_cfg:
-                    proceed, inc0, icp_fields = _run_icp_gate(s, ld, icp_cfg)
-                    for k, v in inc0.items():
-                        inc[k] = inc.get(k, 0) + v
-                    if not proceed:
-                        return inc
-                writer_profile = dict(profile or {})
-                if icp_cfg:
-                    writer_profile["skip_icp"] = True
                 extra_rules = _rules_list(s, variable_set) if variable_set else []
-                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, writer_profile, extra_rules)
+                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
                 inc["cost"] = inc.get("cost", 0) + cost
                 if r.get("_status") == "error" or not r.get("ICPReview"):
-                    keep = {"_icp": icp_fields} if icp_fields else {}
-                    keep.update({"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]})
-                    ld.result = keep
+                    ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
                     ld.status = "error"
                     s.commit()
                     inc["error"] = 1
                 else:
-                    if icp_fields:
-                        r["_icp"] = icp_fields
-                        r["ICPReview"] = "ICP"
-                        r["ICP_reason"] = (icp_fields.get("primary_icp_reason")
-                                           or icp_fields.get("summary") or r.get("ICP_reason") or "")
                     ld.result = r
+                    ld.icp_decision = r.get("ICPReview") or ""
                     ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
                     s.commit()
                     if r.get("_title_gate") == "rejected":
@@ -631,14 +570,12 @@ def _run_job(job_id, target_ids, workers=None):
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
-        icp_cfg = _icp_config_for(s, job.variable_set)
         enrichments = job.enrichments
     finally:
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_enrich_one, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile, variable_set=vset,
-                                icp_cfg=icp_cfg),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset),
                         _clamp_workers(workers, ENRICH_WORKERS))
 
 
@@ -832,14 +769,12 @@ def _run_pipeline_job(job_id, target_ids, mode, workers=None):
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
-        icp_cfg = _icp_config_for(s, job.variable_set)
         enrichments = job.enrichments
     finally:
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_pipeline_one, mode=mode, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile, variable_set=vset,
-                                icp_cfg=icp_cfg),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset),
                         _clamp_workers(workers, ENRICH_WORKERS))
 
 
@@ -1863,6 +1798,137 @@ def save_workspace_config(variable_set: str, body: ConfigBody):
         s.commit()
         counts = {k: (len(v) if isinstance(v, list) else 1) for k, v in sections.items()}
         return {"ok": True, "variable_set": variable_set, "counts": counts}
+    finally:
+        s.close()
+
+
+# ---------- JSON-driven workspace config (paste full JSON per section) ----------
+# The reliable path: paste the engine-format JSON for each section. The ICP JSON
+# (icp_definition) drives the engine's native strict ICP review; the Client
+# Profile JSON is the engine writer profile; the Format JSON sets variables +
+# global output rules.
+
+_ICP_JSON_TEMPLATE = {
+    "procedure": [
+        "Read the website and decide what the company does and who it sells to.",
+        "If it matches any HARD Non-ICP override, return Non-ICP.",
+        "If it clearly fits an ICP category, return ICP.",
+        "If the site is too thin to tell, return the default.",
+    ],
+    "icp_categories": [
+        "B2B manufacturing / industrial",
+        "B2B software / SaaS (mid-market+)",
+        "Cybersecurity",
+        "IT services & consulting",
+    ],
+    "hard_non_icp": [
+        "Consumer / B2C business",
+        "Ecommerce / online store",
+        "Local-only service business",
+        "Low-ticket SaaS with public pricing under $5k/mo",
+        "Mostly government / tender / distributor / channel sales",
+    ],
+    "default": "Needs Review",
+}
+_CLIENT_PROFILE_JSON_TEMPLATE = {
+    "client_name": "RevCadence",
+    "service_brief": "What the client does, in plain language.",
+    "main_offer": "The core offer.",
+    "what_we_are_pitching": "Exactly what we pitch to prospects (the sender's offer).",
+    "target_outcome": "What a win looks like for the client.",
+}
+_FORMAT_JSON_TEMPLATE = {
+    "temperature": 0.7,
+    "max_tokens": 2200,
+    "global_output_rules": ["Write in plain, specific language.", "No fabricated facts."],
+    "variables": [
+        {"label": "Value Proposition", "min_words": 25, "max_words": 60,
+         "guidance": "One sentence pitching the CLIENT's offer to this prospect.",
+         "template": "We help {{industry}} get more clients by {{mechanism}}.",
+         "examples": ["..."], "placeholders": [{"token": "industry", "examples": ["manufacturers"]}]}
+    ],
+}
+
+
+class SectionJsonBody(BaseModel):
+    section: str               # client_profile | icp_definition | format
+    data: Any = {}
+
+
+@app.get("/api/workspaces/{slug}/section-json")
+def get_section_json(slug: str):
+    s = SessionLocal()
+    try:
+        ws = s.query(Workspace).filter_by(slug=slug).first()
+        sections = _builder_sections(s, slug)
+        variables = [c.spec for c in s.query(CustomVariable)
+                     .filter_by(variable_set=slug).order_by(CustomVariable.id).all()]
+        fmt = dict(sections.get("format") or {})
+        fmt["variables"] = variables
+        return {
+            "is_workspace": bool(ws),
+            "client_profile": (ws.profile if ws else {}) or {},
+            "icp_definition": sections.get("icp_definition") or {},
+            "format": fmt,
+            "templates": {"client_profile": _CLIENT_PROFILE_JSON_TEMPLATE,
+                          "icp_definition": _ICP_JSON_TEMPLATE,
+                          "format": _FORMAT_JSON_TEMPLATE},
+        }
+    finally:
+        s.close()
+
+
+@app.put("/api/workspaces/{slug}/section-json")
+def save_section_json(slug: str, body: SectionJsonBody):
+    """Paste full JSON for one section and apply it directly. Used by classify/
+    enrich immediately — no field mapping, no separate ICP gate."""
+    s = SessionLocal()
+    try:
+        ws = s.query(Workspace).filter_by(slug=slug).first()
+        if not ws:
+            raise HTTPException(404, "JSON config is only for your own workspaces.")
+        sec, data = body.section, body.data
+
+        if sec == "client_profile":
+            ws.profile = data if isinstance(data, dict) else {}
+            s.commit()
+            return {"ok": True, "section": sec}
+
+        row = s.query(WorkspaceConfig).filter_by(variable_set=slug).first()
+        sections = dict(row.sections) if row and isinstance(row.sections, dict) else {}
+
+        if sec == "icp_definition":
+            sections["icp_definition"] = data if isinstance(data, dict) else {}
+            result = {"ok": True, "section": sec}
+        elif sec == "format":
+            d = data if isinstance(data, dict) else {}
+            sections["format"] = {k: d.get(k) for k in ("global_output_rules", "temperature", "max_tokens")
+                                  if d.get(k) is not None}
+            count = 0
+            for v in (d.get("variables") or []):
+                if not isinstance(v, dict):
+                    continue
+                spec = ea.build_custom_spec(
+                    label=v.get("label") or v.get("name") or "Variable",
+                    template=v.get("template", "") or "", placeholders=v.get("placeholders", []) or [],
+                    min_words=v.get("min_words"), max_words=v.get("max_words"),
+                    purpose=v.get("purpose") or v.get("guidance", "") or "", examples=v.get("examples", []) or [])
+                ex = s.query(CustomVariable).filter_by(variable_set=slug, name=spec["name"]).first()
+                if ex:
+                    ex.label = spec["label"]; ex.spec = spec
+                else:
+                    s.add(CustomVariable(variable_set=slug, name=spec["name"], label=spec["label"], spec=spec))
+                count += 1
+            result = {"ok": True, "section": sec, "variables_imported": count}
+        else:
+            raise HTTPException(400, "section must be client_profile, icp_definition, or format")
+
+        if not row:
+            s.add(WorkspaceConfig(variable_set=slug, sections=sections))
+        else:
+            row.sections = sections
+        s.commit()
+        return result
     finally:
         s.close()
 

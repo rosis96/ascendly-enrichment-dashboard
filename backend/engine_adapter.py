@@ -932,16 +932,22 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
         line = str(line).strip()
         if line:
             user_rules.append("USER CORRECTION (obey this exactly): " + line)
+    # Extra global rules pasted via the Format JSON (profile["_global_output_rules"]).
+    pasted_rules = [str(r) for r in ((profile or {}).get("_global_output_rules") or []) if str(r).strip()]
     vs = {
         "variable_set_name": "dashboard",
         "max_tokens": base_spec.get("max_tokens", 2200),
         "temperature": base_spec.get("temperature", 0.7),
         "output_keys": [v["name"] for v in variables],
-        "global_output_rules": base_rules + website_rules + role_lock + user_rules,
+        "global_output_rules": base_rules + website_rules + role_lock + pasted_rules + user_rules,
         "variables": variables,
     }
-    if base_spec.get("icp_definition"):
-        vs["icp_definition"] = base_spec["icp_definition"]
+    # ICP brain: the pasted icp_definition (from the ICP JSON box, attached as
+    # profile["_icp_definition"], or inside the pasted client-profile JSON) drives
+    # the engine's native STRICT ICP review. This is the single source of truth.
+    icp_def = base_spec.get("icp_definition") or (profile or {}).get("_icp_definition") or (profile or {}).get("icp_definition")
+    if icp_def:
+        vs["icp_definition"] = icp_def
     if base_spec.get("skip_icp") or (profile or {}).get("skip_icp"):
         vs["skip_icp"] = True
 
