@@ -1862,6 +1862,38 @@ def save_workspace_config(variable_set: str, body: ConfigBody):
         s.close()
 
 
+class ResetConfigBody(BaseModel):
+    confirm: str = ""
+
+
+@app.post("/api/admin/reset-config")
+def reset_config(body: ResetConfigBody):
+    """Wipe ALL workspace CONFIG across every workspace — ICP / Non-ICP, Client
+    Profile, Formats (variables), Rules — and clear stored client profiles.
+
+    Does NOT touch leads, lists, classifications (industry/ESP/title/ICP),
+    enrichment results, or email verification. Workspace rows are kept so the
+    lists stay reachable; only their config is cleared. Requires the exact
+    confirmation phrase 'RESET CONFIG'."""
+    if (body.confirm or "").strip().upper() != "RESET CONFIG":
+        raise HTTPException(400, "Type the exact phrase RESET CONFIG to confirm.")
+    s = SessionLocal()
+    try:
+        wiped = {
+            "workspace_configs": s.query(WorkspaceConfig).delete(synchronize_session=False),
+            "custom_variables": s.query(CustomVariable).delete(synchronize_session=False),
+            "enrich_rules": s.query(EnrichRule).delete(synchronize_session=False),
+            "hidden_variables": s.query(HiddenVariable).delete(synchronize_session=False),
+        }
+        wiped["workspace_profiles_cleared"] = s.query(Workspace).update(
+            {Workspace.profile: {}}, synchronize_session=False)
+        s.commit()
+        return {"ok": True, "wiped": wiped,
+                "kept": "all leads, lists, classifications, enrichment results, and email verification"}
+    finally:
+        s.close()
+
+
 @app.post("/api/lists/{list_id}/classify")
 def classify_list(list_id: int, body: ClassifyBody):
     s = SessionLocal()

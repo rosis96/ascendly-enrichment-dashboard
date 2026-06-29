@@ -1577,8 +1577,32 @@ async function loadSettings(){
     `<div class="kv"><div class="k">Enrichment</div><div class="v">Demo mode (set ENRICH_MODE=real to use the live engine)</div></div>` +
     `<div class="kv"><div class="k">Active format set</div><div class="v">${esc(state.variableSet)}</div></div>` +
     `<div class="kv"><div class="k">Default test cap</div><div class="v"><input id="defLimit" type="number" min="1" value="${esc(def)}"> leads</div></div>` +
-    `</div>`;
+    `</div>` +
+    `<div class="fv-h" style="margin-top:22px;color:var(--red-tx)">Danger zone</div>` +
+    `<div class="card" style="border:1px solid var(--red-bg)">` +
+    `<div class="v" style="color:var(--muted);line-height:1.5">Reset all workspace <b>configuration</b> — ICP / Non-ICP, Client Profile, Formats (variables), and Rules — across every workspace. ` +
+    `Your leads, lists, and all classifications (industry, ESP, title, ICP) and enrichment results are <b>kept</b>.</div>` +
+    `<div class="brow" style="margin-top:12px"><button class="run stop" id="resetCfgBtn">Reset all config</button>` +
+    `<span class="savedmsg" id="resetCfgMsg"></span></div></div>`;
   $("defLimit").onchange = e => { localStorage.setItem("defLimit", e.target.value); $("limitN").value = e.target.value; };
+  if($("resetCfgBtn")) $("resetCfgBtn").onclick = resetAllConfig;
+}
+
+async function resetAllConfig(){
+  const ans = prompt("This wipes ALL workspace config (ICP, Client Profile, Formats, Rules) for EVERY workspace.\nYour 1M leads, lists, and their classifications are KEPT.\n\nType  RESET CONFIG  to confirm:");
+  if(ans === null) return;
+  const m = $("resetCfgMsg");
+  if((ans || "").trim().toUpperCase() !== "RESET CONFIG"){
+    if(m){ m.textContent = "Phrase didn't match — nothing deleted."; m.style.color = "var(--red-tx)"; }
+    return;
+  }
+  if(m){ m.textContent = "Resetting…"; m.style.color = "var(--hint)"; }
+  try{
+    const r = await api("/api/admin/reset-config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "RESET CONFIG" }) });
+    if(m){ m.textContent = "✓ Config reset. Leads & classifications kept."; m.style.color = "var(--green-tx)"; }
+  }catch(e){ if(m){ m.textContent = "Reset failed: " + (e.message || ""); m.style.color = "var(--red-tx)"; } }
 }
 
 async function toggleWsMenu(){
