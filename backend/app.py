@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import SessionLocal, init_db
-from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule, ImportField
+from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule, ImportField, WorkspaceConfig
 from sqlalchemy import or_, func
 import engine_adapter as ea
 from integrations import reoon
@@ -1554,6 +1554,102 @@ def save_rules(variable_set: str, body: RulesBody):
         s.commit()
         rules = _rules_list(s, variable_set)
         return {"ok": True, "count": len(rules)}
+    finally:
+        s.close()
+
+
+# --------------------- Workspace Builder config (storage only) ---------------------
+# These endpoints just STORE the new configuration sections a workspace can have.
+# The existing enrichment pipeline does not consume them yet; this is the
+# Workspace Builder's persistence layer and nothing here changes how leads are
+# processed today.
+
+_CONFIG_DEFAULTS = {
+    "strategy": {
+        "business_overview": "", "offers": "", "positioning": "", "objectives": "",
+        "icp": "", "non_icp": "", "buyer_personas": "", "competitors": "",
+        "deal_size": "", "geo": "", "constraints": "", "notes": "", "instructions": "",
+    },
+    "knowledge": [],   # [{id,kind,label,content,url,tags,notes}]
+    "analysis": [],    # [{id,name,prompt,output_schema,score,confidence,run_if,depends_on}]
+    "decision": [],    # [{id,label,when,outcome,priority}]
+    "assets": [],      # [{id,name,prompt,format,min_words,max_words,run_if}]
+    "export": {"fields": [], "notes": ""},  # {fields:[{source,column}], notes}
+}
+
+
+def _config_with_defaults(sections):
+    sections = dict(sections or {})
+    out = {}
+    for key, default in _CONFIG_DEFAULTS.items():
+        val = sections.get(key)
+        if val is None:
+            out[key] = json.loads(json.dumps(default))  # deep copy
+        else:
+            out[key] = val
+    # keep any forward-compatible extra keys untouched
+    for k, v in sections.items():
+        if k not in out:
+            out[k] = v
+    return out
+
+
+def _prefill_strategy_from_profile(s, variable_set, sections):
+    """If the Strategy section is still empty, seed a couple of fields from the
+    existing client profile so the builder isn't blank on first open. Read-only
+    seed — never overwrites the stored profile, never auto-saved."""
+    strat = sections.get("strategy") or {}
+    if any((strat.get(k) or "").strip() for k in strat):
+        return sections
+    ws = s.query(Workspace).filter_by(slug=variable_set).first()
+    prof = (ws.profile if ws else None) or {}
+    if isinstance(prof, dict) and prof:
+        mapping = {
+            "business_overview": prof.get("service_brief") or prof.get("business_overview") or prof.get("overview"),
+            "offers": prof.get("main_offer") or prof.get("what_we_are_pitching") or prof.get("offers"),
+            "objectives": prof.get("target_outcome") or prof.get("objectives"),
+            "icp": prof.get("icp_summary") or prof.get("icp"),
+        }
+        for k, v in mapping.items():
+            if v and not (strat.get(k) or "").strip():
+                strat[k] = v if isinstance(v, str) else json.dumps(v)
+        sections["strategy"] = strat
+    return sections
+
+
+@app.get("/api/workspaces/{variable_set}/config")
+def get_workspace_config(variable_set: str):
+    s = SessionLocal()
+    try:
+        row = s.query(WorkspaceConfig).filter_by(variable_set=variable_set).first()
+        sections = _config_with_defaults(row.sections if row else {})
+        sections = _prefill_strategy_from_profile(s, variable_set, sections)
+        return {"variable_set": variable_set, "sections": sections,
+                "saved": bool(row)}
+    finally:
+        s.close()
+
+
+class ConfigBody(BaseModel):
+    sections: dict = {}
+
+
+@app.put("/api/workspaces/{variable_set}/config")
+def save_workspace_config(variable_set: str, body: ConfigBody):
+    """Upsert the workspace's builder sections. Storage only — does not touch the
+    enrichment pipeline, leads, profile, or variables."""
+    s = SessionLocal()
+    try:
+        sections = _config_with_defaults(body.sections or {})
+        row = s.query(WorkspaceConfig).filter_by(variable_set=variable_set).first()
+        if not row:
+            row = WorkspaceConfig(variable_set=variable_set, sections=sections)
+            s.add(row)
+        else:
+            row.sections = sections
+        s.commit()
+        counts = {k: (len(v) if isinstance(v, list) else 1) for k, v in sections.items()}
+        return {"ok": True, "variable_set": variable_set, "counts": counts}
     finally:
         s.close()
 

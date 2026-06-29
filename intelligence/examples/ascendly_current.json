@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "id": "ascendly_current",
+  "name": "Ascendly — Current Engine (parity port)",
+  "meta": {
+    "config_version": "1.0.0",
+    "author": "rosis_s@ascendly.one",
+    "notes": "Reproduces TODAY'S pipeline (scrape -> title gate -> strict ICP review -> writer) purely as config. This is the parity target: the new executor must produce the same accept/reject + personalization as the legacy path before any workspace migrates. No Knowledge layer here on purpose — it mirrors current behaviour."
+  },
+
+  "strategy": {
+    "business_overview": "Ascendly runs done-for-you B2B outbound: building targeted lead lists, enriching them, and writing personalized cold email for clients.",
+    "offers": [
+      { "name": "Managed Outbound", "description": "List building + enrichment + personalized cold email campaigns.", "value_prop": "Booked meetings without hiring an SDR team." }
+    ],
+    "positioning": "Personalization at scale that still reads like a human wrote it.",
+    "objectives": "Book qualified sales calls for the client.",
+    "campaign_goals": "Positive replies and booked meetings from cold email.",
+    "icp": "B2B companies where the person holds a senior/decision-making title (owner, founder, C-level, VP, head, director) and the company has a real website describing a clear service or product.",
+    "non_icp": "Junior titles, personal/parked/dead websites, or companies with no discernible B2B offer.",
+    "constraints": "Never pitch the prospect's own service back to them. The copy must pitch the CLIENT's service to the prospect."
+  },
+
+  "context_sources": [
+    { "id": "scrape", "type": "web_scrape", "config": { "max_pages": 3, "max_chars": 9000 } },
+    { "id": "title_gate", "type": "title_filter" }
+  ],
+
+  "pipelines": [
+    {
+      "id": "analysis",
+      "kind": "analysis",
+      "modules": [
+        {
+          "id": "icp_review",
+          "label": "ICP Review",
+          "type": "llm_analysis",
+          "depends_on": ["scrape"],
+          "run_if": "context.title_gate.status == 'pass'",
+          "prompt": "You evaluate whether a company is a fit for the client's outbound.\n\nCLIENT STRATEGY:\n{{strategy}}\n\nCOMPANY WEBSITE CONTENT:\n{{context.scrape.content}}\n\nDecide if this company is an ICP for the client. Judge by the client's ICP/non-ICP definition. Reply with the structured fields only.",
+          "output": {
+            "ICPReview": { "type": "enum", "values": ["ICP", "Non-ICP"] },
+            "reasons": { "type": "string" }
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "decision",
+      "kind": "decision",
+      "modules": [
+        {
+          "id": "primary",
+          "type": "decision",
+          "outputs": ["outcome"],
+          "rules": [
+            { "if": "context.title_gate.status == 'rejected'", "set": { "outcome": "Reject" } },
+            { "if": "analysis.icp_review.ICPReview == 'Non-ICP'", "set": { "outcome": "Reject" } },
+            { "if": "analysis.icp_review.ICPReview == 'ICP'", "set": { "outcome": "Accept" } }
+          ],
+          "default": { "outcome": "Needs Review" }
+        }
+      ]
+    },
+
+    {
+      "id": "enrichment",
+      "kind": "enrichment",
+      "run_if": "decision.outcome == 'Accept'",
+      "modules": [
+        {
+          "id": "email_personalization",
+          "label": "Email Personalization",
+          "type": "llm_text",
+          "key": "email_personalization",
+          "depends_on": ["icp_review"],
+          "prompt": "Write one personalized cold-email opening line that pitches the CLIENT's service to this prospect. Do NOT pitch the prospect's own service back to them.\n\nCLIENT STRATEGY:\n{{strategy}}\n\nABOUT THE PROSPECT (from their site):\n{{context.scrape.content}}\n\nWrite a natural, specific opener referencing something real about the prospect.",
+          "format": "plain",
+          "min_words": 20,
+          "max_words": 60,
+          "output": { "text": { "type": "string" } },
+          "export": { "include": true, "column": "Email_Personalization" }
+        }
+      ]
+    }
+  ],
+
+  "export": {
+    "default_format": "csv",
+    "csv": {
+      "only_where": "decision.outcome == 'Accept'",
+      "fields": [
+        { "source": "lead.first_name", "column": "First Name" },
+        { "source": "lead.last_name", "column": "Last Name" },
+        { "source": "lead.title", "column": "Title" },
+        { "source": "lead.company", "column": "Company" },
+        { "source": "lead.email", "column": "Email" },
+        { "source": "lead.website", "column": "Website" },
+        { "source": "decision.outcome", "column": "Decision" },
+        { "source": "enrichment.email_personalization", "column": "Email_Personalization" }
+      ]
+    }
+  },
+
+  "settings": {
+    "models": { "analysis": "gpt-4o-mini", "enrichment": "gpt-4.1" },
+    "scrape": { "max_pages": 3, "max_chars": 9000 }
+  }
+}

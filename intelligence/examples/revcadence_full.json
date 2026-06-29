@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "id": "revcadence_full",
+  "name": "RevCadence — Full Intelligence Workspace",
+  "meta": {
+    "config_version": "1.0.0",
+    "author": "rosis_s@ascendly.one",
+    "notes": "A DIFFERENT client with completely different modules, a Decision engine, and a KNOWLEDGE layer. Proves nothing is hardcoded: more analysis modules, knowledge injection (case studies + pricing + competitors) feeding richer enrichment than a homepage crawl could, and multiple campaign assets. Same engine, same schema."
+  },
+
+  "strategy": {
+    "business_overview": "RevCadence builds AI software that automates revenue operations for mid-market SaaS companies.",
+    "offers": [
+      { "name": "RevCadence Platform", "description": "AI agents that clean CRM data, score pipeline, and draft follow-ups.", "price_point": "$2k–$15k/mo", "value_prop": "RevOps team output without the headcount." }
+    ],
+    "positioning": "Not another dashboard — autonomous agents that DO the RevOps work, not just visualize it.",
+    "market": "Mid-market B2B SaaS, 50–1000 employees, with an existing CRM (HubSpot or Salesforce).",
+    "objectives": "Book demos with RevOps / Sales Ops leaders.",
+    "campaign_goals": "Demos booked with economic buyers; secondary: warm replies from champions.",
+    "icp": "B2B SaaS, 50–1000 employees, has a RevOps/SalesOps function, uses HubSpot or Salesforce, growth-stage (Series A–C).",
+    "non_icp": "Agencies, pre-revenue startups, non-SaaS, companies <20 employees, or anyone without a CRM.",
+    "buyer_personas": [
+      { "title": "Head of RevOps", "role": "Champion / economic buyer", "pains": "Manual CRM hygiene, slow pipeline reviews, rep time lost to admin.", "goals": "Clean data, faster cycles, more selling time.", "triggers": "Recent funding, new VP Sales, hiring RevOps roles." },
+      { "title": "VP Sales", "role": "Economic buyer", "pains": "Inaccurate forecasts, ramp time.", "goals": "Predictable revenue.", "triggers": "Missed quarter, board pressure." }
+    ],
+    "deal_size": "$30k–$180k ACV.",
+    "geo": "North America + UK primarily.",
+    "constraints": "Do not contact existing customers or named competitors. Avoid companies in active security incidents.",
+    "custom": { "must_have_crm": ["HubSpot", "Salesforce"], "stage_fit": ["Series A", "Series B", "Series C"] }
+  },
+
+  "knowledge_base": [
+    { "id": "case_seriesb_saas", "kind": "case_study", "label": "Series B SaaS — 40% faster pipeline reviews",
+      "tags": ["saas", "series_b", "hubspot", "revops"],
+      "content": "A 220-person Series B SaaS using HubSpot cut pipeline review prep from 6 hours to under 1 by letting RevCadence agents auto-update deal stages and flag stale opportunities. Forecast accuracy improved 18%." },
+    { "id": "case_salesforce_ent", "kind": "case_study", "label": "Salesforce mid-market — data hygiene",
+      "tags": ["saas", "salesforce", "data_hygiene"],
+      "content": "A Salesforce shop reduced duplicate/incomplete records by 73% in 30 days with RevCadence's CRM cleaning agents, recovering ~9 rep-hours/week." },
+    { "id": "pricing_2026", "kind": "pricing", "label": "2026 Pricing",
+      "content": "Starter $2k/mo (1 agent), Growth $6k/mo (3 agents + scoring), Enterprise from $12k/mo (custom agents + SSO). Annual = 2 months free." },
+    { "id": "competitors", "kind": "competitor", "label": "Competitive landscape",
+      "tags": ["positioning"],
+      "content": "Vs Clari/Gong: those analyze; RevCadence acts. Vs in-house scripts: no maintenance burden, governed + auditable. Vs generic AI: purpose-built for CRM objects." },
+    { "id": "objection_bank", "kind": "faq", "label": "Common objections",
+      "content": "‘We already have RevOps’ -> agents augment the team, not replace it. ‘Security?’ -> SOC2, scoped CRM permissions, full audit log. ‘Switching cost?’ -> read-only pilot in 1 week." },
+    { "id": "prior", "kind": "prior_enrichment", "label": "Existing enrichment for this lead", "ref": "lead://result" }
+  ],
+
+  "context_sources": [
+    { "id": "scrape", "type": "web_scrape", "config": { "max_pages": 4, "max_chars": 12000 } },
+    { "id": "title_gate", "type": "title_filter" },
+    { "id": "tech", "type": "tech_detect" },
+    { "id": "industry", "type": "industry_classify", "config": { "mode": "deep" } }
+  ],
+
+  "pipelines": [
+    {
+      "id": "analysis",
+      "kind": "analysis",
+      "modules": [
+        { "id": "icp_fit", "label": "ICP Fit", "type": "llm_analysis", "depends_on": ["scrape", "industry"],
+          "prompt": "Score how well this company fits the client's ICP.\n\nSTRATEGY:\n{{strategy}}\n\nINDUSTRY: {{context.industry.label}}\nWEBSITE:\n{{context.scrape.content}}",
+          "output": { "fit_score": { "type": "number", "range": [0, 10] },
+                      "verdict": { "type": "enum", "values": ["ICP", "Non-ICP", "Unclear"] },
+                      "reasons": { "type": "string" } } },
+        { "id": "buyer_fit", "label": "Buyer Fit", "type": "llm_analysis", "depends_on": ["scrape"],
+          "prompt": "Given the buyer personas in the strategy, how likely is a real economic buyer reachable here?\n\nSTRATEGY:\n{{strategy}}\n\nWEBSITE:\n{{context.scrape.content}}",
+          "output": { "score": { "type": "number", "range": [0, 10] }, "notes": { "type": "string" } } },
+        { "id": "tech_signal", "label": "Tech / CRM Detection", "type": "llm_analysis", "depends_on": ["tech", "scrape"],
+          "prompt": "Identify whether this company likely uses HubSpot or Salesforce and any RevOps signals.\n\nDETECTED STACK: {{context.tech.stack}}\nWEBSITE:\n{{context.scrape.content}}",
+          "output": { "crm": { "type": "enum", "values": ["HubSpot", "Salesforce", "Other", "Unknown"] },
+                      "revops_signal": { "type": "enum", "values": ["strong", "weak", "none"] } } },
+        { "id": "outbound_suitability", "label": "Outbound Suitability", "type": "llm_analysis", "depends_on": ["scrape"],
+          "prompt": "Rate how suitable this company is for cold outbound right now (timing, reachability, fit).\n\nSTRATEGY:\n{{strategy}}\nWEBSITE:\n{{context.scrape.content}}",
+          "output": { "score": { "type": "number", "range": [0, 10] }, "reason": { "type": "string" } } },
+        { "id": "messaging", "label": "Messaging Opportunities", "type": "llm_analysis", "depends_on": ["scrape"],
+          "prompt": "List the 1-3 strongest angles to open a conversation with this company about the client's offer.\n\nSTRATEGY:\n{{strategy}}\nWEBSITE:\n{{context.scrape.content}}",
+          "output": { "opportunities": { "type": "string" } } }
+      ]
+    },
+
+    {
+      "id": "decision",
+      "kind": "decision",
+      "modules": [
+        {
+          "id": "primary",
+          "type": "decision",
+          "outputs": ["outcome", "priority", "flags"],
+          "rules": [
+            { "if": "context.title_gate.status == 'rejected'", "set": { "outcome": "Reject" } },
+            { "if": "analysis.icp_fit.verdict == 'Non-ICP'", "set": { "outcome": "Reject" } },
+            { "if": "analysis.tech_signal.crm == 'Unknown' and analysis.icp_fit.fit_score < 6", "set": { "outcome": "Needs Review" } },
+            { "if": "analysis.icp_fit.fit_score >= 8 and analysis.buyer_fit.score >= 7", "set": { "outcome": "Accept", "priority": "High" } },
+            { "if": "analysis.icp_fit.fit_score >= 6", "set": { "outcome": "Accept", "priority": "Normal" } },
+            { "if": "analysis.outbound_suitability.score < 4", "append": { "flags": "low_timing" } },
+            { "if": "analysis.tech_signal.crm in ['HubSpot','Salesforce']", "append": { "flags": "crm_match" } }
+          ],
+          "default": { "outcome": "Needs Review", "priority": "Normal" }
+        }
+      ]
+    },
+
+    {
+      "id": "knowledge",
+      "kind": "knowledge",
+      "run_if": "decision.outcome in ['Accept']",
+      "modules": [
+        { "id": "relevant_cases", "type": "knowledge", "op": "retrieve",
+          "from": { "kind": "case_study" }, "match": "by_tags",
+          "match_on": ["context.industry.label", "analysis.tech_signal.crm"], "limit": 1,
+          "output": { "items": { "type": "list" } } },
+        { "id": "pricing", "type": "knowledge", "op": "static",
+          "from": { "id": "pricing_2026" }, "output": { "text": { "type": "string" } } },
+        { "id": "context_pack", "type": "knowledge", "op": "summarize",
+          "depends_on": ["relevant_cases", "pricing"],
+          "prompt": "Assemble a tight proof+pricing pack tailored to this lead.\n\nLEAD INDUSTRY: {{context.industry.label}}  CRM: {{analysis.tech_signal.crm}}\nRELEVANT CASE(S):\n{{knowledge.relevant_cases.items}}\nPRICING:\n{{knowledge.pricing.text}}\nCOMPETITIVE ANGLE:\n{{knowledge_base.competitors}}",
+          "max_words": 150,
+          "output": { "text": { "type": "string" } } }
+      ]
+    },
+
+    {
+      "id": "enrichment",
+      "kind": "enrichment",
+      "run_if": "decision.outcome == 'Accept'",
+      "modules": [
+        { "id": "pain_summary", "label": "Pain Summary", "type": "llm_text", "key": "pain_summary",
+          "depends_on": ["messaging"],
+          "prompt": "In 1-2 sentences, the most likely pain this lead has that the client solves.\nSTRATEGY:\n{{strategy}}\nANGLES:\n{{analysis.messaging.opportunities}}",
+          "format": "plain", "min_words": 10, "max_words": 35,
+          "output": { "text": { "type": "string" } },
+          "export": { "include": true, "column": "Pain_Summary" } }
+      ]
+    },
+
+    {
+      "id": "assets",
+      "kind": "assets",
+      "run_if": "decision.outcome == 'Accept'",
+      "modules": [
+        { "id": "email_p1", "label": "Email Personalization", "type": "llm_text", "key": "email_p1",
+          "depends_on": ["context_pack", "pain_summary"],
+          "prompt": "Write a personalized cold-email opener (pitch the CLIENT to the prospect).\nSTRATEGY:\n{{strategy}}\nPROOF/PRICING PACK:\n{{knowledge.context_pack.text}}\nPAIN:\n{{enrichment.pain_summary}}\nANGLES:\n{{analysis.messaging.opportunities}}",
+          "format": "plain", "min_words": 25, "max_words": 70,
+          "output": { "text": { "type": "string" } },
+          "export": { "include": true, "column": "Email_Personalization" } },
+        { "id": "li_opener", "label": "LinkedIn Opener", "type": "llm_text", "key": "li_opener",
+          "depends_on": ["pain_summary"],
+          "prompt": "Write a short LinkedIn connection opener (<300 chars) for this lead.\nSTRATEGY:\n{{strategy}}\nPAIN:\n{{enrichment.pain_summary}}",
+          "format": "plain", "max_words": 45,
+          "output": { "text": { "type": "string" } },
+          "export": { "include": true, "column": "LinkedIn_Opener" } },
+        { "id": "subject_lines", "label": "Subject Lines", "type": "llm_text", "key": "subject_lines",
+          "depends_on": ["messaging"],
+          "prompt": "Write 3 cold-email subject lines as a JSON array of strings for this lead.\nANGLES:\n{{analysis.messaging.opportunities}}",
+          "format": "json",
+          "output": { "subjects": { "type": "list" } },
+          "export": { "include": true, "column": "Subject_Lines" } }
+      ]
+    }
+  ],
+
+  "export": {
+    "default_format": "csv",
+    "csv": {
+      "only_where": "decision.outcome == 'Accept'",
+      "fields": [
+        { "source": "lead.first_name", "column": "First Name" },
+        { "source": "lead.company", "column": "Company" },
+        { "source": "lead.email", "column": "Email" },
+        { "source": "context.industry.label", "column": "Industry" },
+        { "source": "analysis.tech_signal.crm", "column": "CRM" },
+        { "source": "decision.outcome", "column": "Decision" },
+        { "source": "decision.priority", "column": "Priority" },
+        { "source": "analysis.icp_fit.fit_score", "column": "ICP_Score" },
+        { "source": "enrichment.pain_summary", "column": "Pain_Summary" },
+        { "source": "assets.email_p1", "column": "Email_Personalization" },
+        { "source": "assets.li_opener", "column": "LinkedIn_Opener" }
+      ]
+    },
+    "instantly": {
+      "enabled": false,
+      "campaign_id": null,
+      "only_where": "decision.outcome == 'Accept' and decision.priority == 'High'",
+      "field_map": { "personalization": "assets.email_p1", "first_line": "assets.li_opener" }
+    }
+  },
+
+  "settings": {
+    "models": { "analysis": "gpt-4o-mini", "knowledge": "gpt-4o-mini", "enrichment": "gpt-4.1", "assets": "gpt-4.1", "classify": "gpt-4o-mini" },
+    "scrape": { "max_pages": 4, "max_chars": 12000 },
+    "concurrency": { "hint": 150 },
+    "currency": "USD"
+  }
+}

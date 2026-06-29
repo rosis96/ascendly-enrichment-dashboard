@@ -899,6 +899,7 @@ function showView(name){
     $("importPanel").hidden = true;
     $("enrichPanel").hidden = true;
   }
+  const bv = $("builderView"); if(bv) bv.hidden = name !== "builder";
   $("formatView").hidden = name !== "format";
   const rv = $("rulesView"); if(rv) rv.hidden = name !== "rules";
   const dv = $("databaseView"); if(dv) dv.hidden = name !== "database";
@@ -934,6 +935,227 @@ async function saveRules(){
     if(m){ m.textContent = `Saved · ${res.count} rule${res.count === 1 ? "" : "s"} active`;
       setTimeout(() => { m.textContent = ""; }, 4000); }
   }catch(e){ const m = $("rulesMsg"); if(m) m.textContent = "Save failed"; }
+}
+
+// ============================ WORKSPACE BUILDER ============================
+// Configuration-only editor for the new workspace sections. Saves to
+// /api/workspaces/{key}/config. Does NOT change how enrichment runs today.
+
+const builder = { tab: "strategy", sections: null, vars: [] };
+
+const BUILDER_TABS = [
+  ["strategy", "Client Strategy"],
+  ["knowledge", "Knowledge"],
+  ["analysis", "Intelligence / Analysis"],
+  ["decision", "Decision Rules"],
+  ["enrichment", "Enrichment Variables"],
+  ["assets", "Campaign Assets"],
+  ["export", "Export Config"],
+];
+
+const STRATEGY_FIELDS = [
+  ["business_overview", "Business overview"], ["offers", "Offers"],
+  ["positioning", "Positioning"], ["objectives", "Objectives"],
+  ["icp", "ICP"], ["non_icp", "Non-ICP"], ["buyer_personas", "Buyer personas"],
+  ["competitors", "Competitors"], ["deal_size", "Deal size"],
+  ["geo", "Geographic focus"], ["constraints", "Constraints"],
+  ["notes", "Notes"], ["instructions", "Permanent instructions"],
+];
+
+const KNOWLEDGE_KINDS = ["case_study", "pricing", "product_doc", "faq", "pdf", "website", "crm_note", "prior_enrichment", "custom"];
+const ASSET_FORMATS = ["plain", "markdown", "json"];
+
+async function loadBuilder(){
+  showView("builder");
+  $("viewTitle").textContent = "Workspace Builder";
+  $("viewSub").textContent = `Configure ${esc(state.client || state.variableSet)} — saved as workspace configuration (does not change current processing).`;
+  $("builderView").innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
+  try{
+    const [cfg, vars] = await Promise.all([
+      api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/config`),
+      api("/api/custom-variables?variable_set=" + encodeURIComponent(state.variableSet)).catch(() => []),
+    ]);
+    builder.sections = cfg.sections;
+    builder.vars = vars || [];
+  }catch(e){
+    $("builderView").innerHTML = `<div class="muted" style="padding:18px">Couldn't load configuration. ${esc(e.message||"")}</div>`;
+    return;
+  }
+  if(!builder.tab) builder.tab = "strategy";
+  renderBuilder();
+}
+
+function renderBuilder(){
+  const tabs = BUILDER_TABS.map(([k, label]) =>
+    `<a class="btab ${builder.tab === k ? "on" : ""}" data-tab="${k}">${esc(label)}</a>`).join("");
+  $("builderView").innerHTML =
+    `<div class="btabs">${tabs}</div>` +
+    `<div class="bbody" id="bbody">${renderBuilderTab(builder.tab)}</div>` +
+    `<div class="bsave"><button class="run" id="bSaveBtn">Save configuration</button>` +
+    `<span class="muted" id="bMsg"></span></div>`;
+  wireBuilder();
+}
+
+function renderBuilderTab(tab){
+  const s = builder.sections;
+  if(tab === "strategy") return renderStrategyTab(s.strategy || {});
+  if(tab === "knowledge") return renderListTab("knowledge", s.knowledge || [], "knowledge item",
+    "Reference knowledge the AI can use later (configuration only — no processing yet).");
+  if(tab === "analysis") return renderListTab("analysis", s.analysis || [], "analysis module",
+    "Unlimited analysis modules. Each stores its own prompt, output schema and run rules.");
+  if(tab === "decision") return renderListTab("decision", s.decision || [], "decision rule",
+    "What happens after analysis. e.g. Accept · Reject · Needs Review · High Priority · Enterprise · Skip Personalization · Manual Review.");
+  if(tab === "enrichment") return renderEnrichmentTab();
+  if(tab === "assets") return renderListTab("assets", s.assets || [], "campaign asset",
+    "Outputs to generate: email personalization, subject lines, LinkedIn openers, call notes, pain summaries, objection hypotheses, meeting prep, etc.");
+  if(tab === "export") return renderExportTab(s.export || {});
+  return "";
+}
+
+function renderStrategyTab(strat){
+  const rows = STRATEGY_FIELDS.map(([k, label]) =>
+    `<label class="bf"><span class="bf-l">${esc(label)}</span>` +
+    `<textarea data-sf="${k}" rows="3" placeholder="${esc(label)}…">${esc(strat[k] || "")}</textarea></label>`).join("");
+  return `<div class="bhelp">The permanent business context for this client. Replaces the old single profile with structured strategy fields.</div>` +
+    `<div class="bgrid">${rows}</div>`;
+}
+
+// Field definitions per list type: [key, label, kind] where kind = text|area|select:opts|check
+const LIST_FIELDS = {
+  knowledge: [
+    ["label", "Label", "text"], ["kind", "Type", "select"],
+    ["url", "Link / reference", "text"], ["tags", "Tags (comma-sep)", "text"],
+    ["content", "Pasted content / notes", "area"],
+  ],
+  analysis: [
+    ["name", "Module name", "text"], ["prompt", "Prompt", "area"],
+    ["output_schema", "Output schema", "area"], ["run_if", "Run conditions", "text"],
+    ["depends_on", "Dependencies (comma-sep)", "text"],
+    ["score", "Produces a score", "check"], ["confidence", "Produces confidence", "check"],
+  ],
+  decision: [
+    ["outcome", "Outcome / label", "text"], ["when", "When (condition)", "text"],
+    ["priority", "Priority (optional)", "text"],
+  ],
+  assets: [
+    ["name", "Asset name", "text"], ["prompt", "Prompt", "area"],
+    ["format", "Format", "select"], ["min_words", "Min words", "text"],
+    ["max_words", "Max words", "text"], ["run_if", "Run conditions", "text"],
+  ],
+};
+
+function renderListTab(name, items, noun, help){
+  const rows = items.map((it, i) => renderListItem(name, it, i)).join("") ||
+    `<div class="muted" style="padding:8px 2px">No ${esc(noun)}s yet.</div>`;
+  return `<div class="bhelp">${esc(help)}</div>` +
+    `<div id="blist">${rows}</div>` +
+    `<button class="gbtn" id="bAdd" style="margin-top:10px">+ Add ${esc(noun)}</button>`;
+}
+
+function renderListItem(name, it, i){
+  const fields = LIST_FIELDS[name] || [];
+  const inner = fields.map(([k, label, kind]) => {
+    if(kind === "area")
+      return `<label class="bf"><span class="bf-l">${esc(label)}</span><textarea data-f="${k}" rows="3">${esc(it[k] || "")}</textarea></label>`;
+    if(kind === "check")
+      return `<label class="bf bf-ck"><input type="checkbox" data-f="${k}" ${it[k] ? "checked" : ""}/> <span>${esc(label)}</span></label>`;
+    if(kind === "select"){
+      const opts = name === "knowledge" ? KNOWLEDGE_KINDS : ASSET_FORMATS;
+      return `<label class="bf"><span class="bf-l">${esc(label)}</span><select data-f="${k}">` +
+        opts.map(o => `<option ${it[k] === o ? "selected" : ""}>${esc(o)}</option>`).join("") + `</select></label>`;
+    }
+    return `<label class="bf"><span class="bf-l">${esc(label)}</span><input data-f="${k}" value="${esc(it[k] || "")}" /></label>`;
+  }).join("");
+  return `<div class="bitem" data-idx="${i}"><div class="bitem-h"><b>${esc((it.name || it.label || it.outcome) || (name + " " + (i + 1)))}</b>` +
+    `<a class="bitem-x" data-rm="${i}">remove</a></div><div class="bitem-g">${inner}</div></div>`;
+}
+
+function renderEnrichmentTab(){
+  const list = (builder.vars || []).map(v =>
+    `<div class="bitem"><div class="bitem-h"><b>${esc(v.label || v.name)}</b><span class="muted" style="margin-left:8px">${esc(v.name)}</span></div></div>`).join("") ||
+    `<div class="muted" style="padding:8px 2px">No enrichment variables yet.</div>`;
+  return `<div class="bhelp">Your existing enrichment variables — unchanged and still used by the current pipeline. Edit them in the full editor.</div>` +
+    list + `<button class="gbtn" id="bOpenVars" style="margin-top:10px">Open variables editor →</button>`;
+}
+
+function renderExportTab(exp){
+  const fields = (exp.fields || []).map((f, i) =>
+    `<div class="bitem" data-idx="${i}"><div class="bitem-g">` +
+    `<label class="bf"><span class="bf-l">Source path</span><input data-f="source" value="${esc(f.source || "")}" placeholder="e.g. lead.email or assets.email_p1" /></label>` +
+    `<label class="bf"><span class="bf-l">Column name</span><input data-f="column" value="${esc(f.column || "")}" /></label>` +
+    `<a class="bitem-x" data-rm="${i}">remove</a></div></div>`).join("") ||
+    `<div class="muted" style="padding:8px 2px">No export fields mapped yet.</div>`;
+  return `<div class="bhelp">Field mappings for export (configuration only).</div>` +
+    `<div id="blist">${fields}</div>` +
+    `<button class="gbtn" id="bAdd" style="margin-top:10px">+ Add field</button>` +
+    `<label class="bf" style="margin-top:14px"><span class="bf-l">Export notes</span>` +
+    `<textarea id="bExpNotes" rows="2">${esc(exp.notes || "")}</textarea></label>`;
+}
+
+function wireBuilder(){
+  $("builderView").querySelectorAll(".btab").forEach(a =>
+    a.onclick = () => { builderCollectActive(); builder.tab = a.dataset.tab; renderBuilder(); });
+  const add = $("bAdd"); if(add) add.onclick = builderAddRow;
+  $("builderView").querySelectorAll("[data-rm]").forEach(a =>
+    a.onclick = () => { builderCollectActive(); builderRemoveRow(parseInt(a.dataset.rm, 10)); });
+  const ov = $("bOpenVars"); if(ov) ov.onclick = loadFormat;
+  $("bSaveBtn").onclick = builderSave;
+}
+
+function builderCollectActive(){
+  const tab = builder.tab, s = builder.sections;
+  if(tab === "strategy"){
+    const strat = {};
+    $("bbody").querySelectorAll("[data-sf]").forEach(el => strat[el.dataset.sf] = el.value);
+    s.strategy = strat;
+  } else if(tab === "enrichment"){
+    // read-only
+  } else if(tab === "export"){
+    s.export = { fields: collectRows(), notes: ($("bExpNotes") ? $("bExpNotes").value : "") };
+  } else if(LIST_FIELDS[tab]){
+    s[tab] = collectRows();
+  }
+}
+
+function collectRows(){
+  const rows = [];
+  const list = $("blist"); if(!list) return rows;
+  list.querySelectorAll(".bitem").forEach(row => {
+    const obj = {};
+    row.querySelectorAll("[data-f]").forEach(el => {
+      obj[el.dataset.f] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    rows.push(obj);
+  });
+  return rows;
+}
+
+function builderAddRow(){
+  builderCollectActive();
+  const tab = builder.tab, s = builder.sections;
+  if(tab === "export"){ s.export.fields = (s.export.fields || []).concat([{ source: "", column: "" }]); }
+  else if(LIST_FIELDS[tab]){ s[tab] = (s[tab] || []).concat([{}]); }
+  renderBuilder();
+}
+
+function builderRemoveRow(idx){
+  const tab = builder.tab, s = builder.sections;
+  if(tab === "export"){ s.export.fields.splice(idx, 1); }
+  else if(LIST_FIELDS[tab]){ s[tab].splice(idx, 1); }
+  renderBuilder();
+}
+
+async function builderSave(){
+  builderCollectActive();
+  const msg = $("bMsg"); if(msg){ msg.textContent = "Saving…"; msg.style.color = "var(--hint)"; }
+  try{
+    const r = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/config`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sections: builder.sections }),
+    });
+    if(msg){ msg.textContent = "Saved ✓"; msg.style.color = "var(--acc-tx)";
+      setTimeout(() => { if(msg) msg.textContent = ""; }, 3500); }
+  }catch(e){ if(msg){ msg.textContent = "Save failed"; msg.style.color = "var(--red-tx)"; } }
 }
 
 async function loadFormat(){
@@ -1266,6 +1488,7 @@ async function setWorkspace(key, name){
     renderBar({ list: { count: 0 } });
     updateRunUI();
   } else if(state.view === "format") loadFormat();
+  else if(state.view === "builder"){ builder.tab = builder.tab || "strategy"; loadBuilder(); }
   else if(state.view === "settings") loadSettings();
 }
 
@@ -1503,6 +1726,7 @@ function init(){
   };
   $("createBtn").onclick = createList;
   $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
+  $("builderBtn").onclick = loadBuilder;
   $("formatBtn").onclick = loadFormat;
   $("rulesBtn").onclick = loadRules;
   $("databaseBtn").onclick = loadDatabase;

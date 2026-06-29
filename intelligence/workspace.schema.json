@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ascendly.one/schemas/intelligence-workspace/v1.json",
+  "title": "Intelligence Workspace Config (v1)",
+  "description": "Portable, self-contained configuration for one client's Intelligence Workspace. Pipelines are an ordered array of plug-ins resolved by `kind`.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "id", "name", "pipelines"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "author": { "type": "string" },
+        "config_version": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "strategy": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "business_overview": { "type": "string" },
+        "offers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "price_point": { "type": "string" },
+              "value_prop": { "type": "string" }
+            }
+          }
+        },
+        "positioning": { "type": "string" },
+        "market": { "type": "string" },
+        "objectives": { "type": "string" },
+        "campaign_goals": { "type": "string" },
+        "icp": { "type": "string" },
+        "non_icp": { "type": "string" },
+        "buyer_personas": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "sales_process": { "type": "string" },
+        "deal_size": { "type": "string" },
+        "geo": { "type": "string" },
+        "constraints": { "type": "string" },
+        "notes": { "type": "string" },
+        "custom": { "type": "object", "additionalProperties": true }
+      }
+    },
+
+    "knowledge_base": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/knowledgeItem" }
+    },
+
+    "context_sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/contextSource" }
+    },
+
+    "pipelines": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/pipeline" }
+    },
+
+    "export": { "$ref": "#/$defs/export" },
+
+    "settings": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "models": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+        "scrape": { "type": "object", "additionalProperties": true },
+        "concurrency": { "type": "object", "additionalProperties": true },
+        "currency": { "type": "string" }
+      }
+    }
+  },
+
+  "$defs": {
+    "knowledgeItem": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+        "kind": {
+          "type": "string",
+          "enum": ["case_study", "product_doc", "pricing", "competitor", "pdf", "deck", "faq", "website", "crm_note", "prior_enrichment", "custom"]
+        },
+        "label": { "type": "string" },
+        "content": { "type": "string" },
+        "ref": { "type": "string" },
+        "extracted": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "metadata": { "type": "object", "additionalProperties": true }
+      },
+      "anyOf": [
+        { "required": ["content"] },
+        { "required": ["ref"] }
+      ]
+    },
+
+    "contextSource": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+        "type": {
+          "type": "string",
+          "enum": ["web_scrape", "title_filter", "esp_detect", "tech_detect", "industry_classify"]
+        },
+        "config": { "type": "object", "additionalProperties": true },
+        "depends_on": { "$ref": "#/$defs/idList" }
+      }
+    },
+
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+        "kind": {
+          "description": "Resolved via the pipeline-kind registry. v1 ships these; new kinds are additive.",
+          "type": "string",
+          "enum": ["analysis", "decision", "knowledge", "enrichment", "assets", "crm_history", "social_signals", "buying_committee", "web_enrich", "compute"]
+        },
+        "enabled": { "type": "boolean", "default": true },
+        "run_if": { "type": "string" },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/module" } },
+        "config": { "type": "object", "additionalProperties": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "decision" } } },
+          "then": { "properties": { "modules": { "items": { "$ref": "#/$defs/decisionModule" } } } }
+        }
+      ]
+    },
+
+    "module": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+        "label": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["llm_analysis", "llm_text", "knowledge", "decision", "compute"]
+        },
+        "enabled": { "type": "boolean", "default": true },
+        "prompt": { "type": "string" },
+        "depends_on": { "$ref": "#/$defs/idList" },
+        "run_if": { "type": "string" },
+        "output": { "$ref": "#/$defs/outputSpec" },
+        "model": { "type": ["string", "null"] },
+        "export": { "$ref": "#/$defs/moduleExport" },
+
+        "key": { "type": "string" },
+        "format": { "type": "string", "enum": ["plain", "markdown", "html", "json"] },
+        "min_words": { "type": "integer", "minimum": 0 },
+        "max_words": { "type": "integer", "minimum": 0 },
+
+        "op": { "type": "string", "enum": ["static", "retrieve", "summarize", "semantic"] },
+        "from": { "type": "object", "additionalProperties": true },
+        "match": { "type": "string" },
+        "match_on": { "type": "array", "items": { "type": "string" } },
+        "limit": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "decisionModule": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "type", "rules"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+        "type": { "const": "decision" },
+        "outputs": { "type": "array", "items": { "type": "string" } },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["if"],
+            "properties": {
+              "if": { "type": "string" },
+              "set": { "type": "object", "additionalProperties": true },
+              "append": { "type": "object", "additionalProperties": true }
+            },
+            "anyOf": [ { "required": ["set"] }, { "required": ["append"] } ]
+          }
+        },
+        "default": { "type": "object", "additionalProperties": true }
+      }
+    },
+
+    "outputSpec": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "enum", "list", "object"] },
+          "range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "values": { "type": "array" }
+        }
+      }
+    },
+
+    "moduleExport": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "include": { "type": "boolean" },
+        "column": { "type": "string" }
+      }
+    },
+
+    "export": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "default_format": { "type": "string" },
+        "csv": { "$ref": "#/$defs/exportDest" },
+        "instantly": { "$ref": "#/$defs/exportDest" },
+        "hubspot": { "$ref": "#/$defs/exportDest" }
+      }
+    },
+
+    "exportDest": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "only_where": { "type": "string" },
+        "campaign_id": { "type": ["string", "null"] },
+        "field_map": { "type": "object", "additionalProperties": { "type": "string" } },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source"],
+            "properties": {
+              "source": { "type": "string" },
+              "column": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "idList": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_-]+$" }
+    }
+  }
+}

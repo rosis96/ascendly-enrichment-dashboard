@@ -61,6 +61,22 @@ class Workspace(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class WorkspaceConfig(Base):
+    """Extra configuration SECTIONS for a workspace (Workspace Builder).
+
+    Pure storage — the existing enrichment pipeline does NOT read this yet. One
+    row per workspace key (variable_set). `sections` holds the new configurable
+    areas the builder edits:
+        { strategy:{}, knowledge:[], analysis:[], decision:[], assets:[], export:{} }
+    Enrichment variables stay in CustomVariable; the client profile stays on
+    Workspace.profile. Nothing here replaces or breaks existing behaviour."""
+    __tablename__ = "workspace_configs"
+    id = Column(Integer, primary_key=True)
+    variable_set = Column(String, unique=True, index=True)
+    sections = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class HiddenVariable(Base):
     __tablename__ = "hidden_variables"
     id = Column(Integer, primary_key=True)
