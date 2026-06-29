@@ -532,6 +532,16 @@ def _icp_procedure_text(variable_set):
     authoritative STRICT procedure. Otherwise fall back to the liberal default
     so other campaigns are unaffected.
     """
+    # When ICP is decided by an EXTERNAL system (the dashboard's ICP gate),
+    # inject NO ICP judgement here. This removes the old "service provider /
+    # liberal categories / icp_definition" framing entirely so it can't leak into
+    # the reason or bias the variables. The dashboard supplies the real decision.
+    if (variable_set or {}).get("skip_icp"):
+        return ("ICP fit is determined by a separate system. Do NOT judge, score, or "
+                "second-guess ICP fit here. Always set ICPReview to \"ICP\". For "
+                "icp_reason, write a brief neutral factual description of what the "
+                "company does (no fit judgement, no 'not a ...' language)."), False
+
     icpdef = (variable_set or {}).get("icp_definition")
     if not icpdef:
         return LIBERAL_ICP_PROCEDURE, False

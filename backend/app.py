@@ -523,9 +523,12 @@ def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=
             ld.status = "error"
             s.commit()
             return {"error": 1, "cost": cost}
-        if icp_fields:                       # re-attach ICP fields onto the writer result
-            res["_icp"] = icp_fields
-            res["ICPReview"] = "ICP"
+        if icp_fields:                       # ICP belongs to the gate, not the writer:
+            res["_icp"] = icp_fields          # overwrite so the writer's old-style
+            res["ICPReview"] = "ICP"          # "Company manufactures..."/"not a service
+            res["ICP_reason"] = (icp_fields.get("primary_icp_reason")  # provider" reason
+                                 or icp_fields.get("summary")          # never shows.
+                                 or res.get("ICP_reason") or "")
         ld.result = res
         ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
         s.commit()
@@ -603,6 +606,8 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
                     if icp_fields:
                         r["_icp"] = icp_fields
                         r["ICPReview"] = "ICP"
+                        r["ICP_reason"] = (icp_fields.get("primary_icp_reason")
+                                           or icp_fields.get("summary") or r.get("ICP_reason") or "")
                     ld.result = r
                     ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
                     s.commit()
