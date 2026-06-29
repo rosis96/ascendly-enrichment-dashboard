@@ -1475,8 +1475,11 @@ async function setWorkspace(key, name){
   $("wsName").textContent = name;
   $("wsDot").textContent = (name[0] || "A").toUpperCase();
   try{ localStorage.setItem("ws", JSON.stringify({ key, name })); }catch(e){}
-  // lists are scoped per workspace — clear current selection and reload them
+  // lists + the Database are scoped per workspace — clear current selection and
+  // drop any cached Database data so a switch never shows the previous
+  // workspace's leads/counts (they are NOT shared; the view was just stale).
   state.listId = null; state.selectedLeads.clear();
+  state.db = null;   // reset Database filters/data/selection/counts on switch
   if(state.poll){ clearInterval(state.poll); state.poll = null; }
   state.running = false;
   await loadEnrichments();
@@ -1489,6 +1492,8 @@ async function setWorkspace(key, name){
     updateRunUI();
   } else if(state.view === "format") loadFormat();
   else if(state.view === "builder"){ builder.tab = builder.tab || "strategy"; loadBuilder(); }
+  else if(state.view === "database") loadDatabase();
+  else if(state.view === "rules") loadRules();
   else if(state.view === "settings") loadSettings();
 }
 
