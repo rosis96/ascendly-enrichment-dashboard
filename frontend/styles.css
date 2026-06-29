@@ -304,3 +304,10 @@ tbody tr:hover{background:var(--surface)}
 /* JSON paste editor */
 .jsonbox{width:100%;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fbfbfe;color:var(--text);resize:vertical;tab-size:2}
 .jsonbox:focus{outline:none;border-color:var(--acc-br);box-shadow:0 0 0 3px var(--acc-bg)}
+
+/* List grid pagination bar */
+.gridpager{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.gridpager #listView{font-size:12.5px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.gridpager .pgbtn{padding:5px 12px}
+.gridpager .pginfo{font-size:12.5px;color:var(--muted)}
+.gridpager .gbtn[disabled]{opacity:.45;cursor:not-allowed}

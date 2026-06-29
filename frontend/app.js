@@ -5,7 +5,7 @@ const ROW_CAP_STEP = 250;   // how many rows to render at once (windowing for sm
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
   view: "table", client: "ascendly", labels: {}, editId: null, filter: "all", industryFilter: "",
-  rowCap: ROW_CAP_STEP, lastCount: 0, tick: 0 };
+  rowCap: ROW_CAP_STEP, lastCount: 0, tick: 0, page: 1, listView: "all" };
 
 function leadCat(ld){
   if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
@@ -146,6 +146,7 @@ async function selectList(id, name, count){
   showView("table");
   state.selectedLeads.clear();
   state.rowCap = ROW_CAP_STEP;
+  state.page = 1; state.listView = "all"; state.filter = "all";
   if(state.poll){ clearInterval(state.poll); state.poll = null; }
   state.running = false; updateRunUI();
   $("viewTitle").textContent = name;
@@ -161,7 +162,7 @@ async function selectList(id, name, count){
 
 async function refresh(){
   if(!state.listId) return null;
-  const d = await api(`/api/lists/${state.listId}`);
+  const d = await api(`/api/lists/${state.listId}?page=${state.page || 1}&view=${encodeURIComponent(state.listView || "all")}`);
   state.lastCount = d.list ? d.list.count : state.lastCount;
   renderGrid(d);
   renderBar(d);
@@ -231,7 +232,22 @@ function renderGrid(d){
   const acts = pre + selTp + selNr + (n > 0
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
     : `<span class="gtact" data-act="clrall">Clear results</span>`);
-  gt.innerHTML = `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
+  // Pagination + server-side view (so the whole 50k+ list is browsable, not just a page)
+  const li = d.list || {};
+  const viewOpts = [["all", "All"], ["notrun", "Not run"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"], ["title_rejected", "Title-rejected"]];
+  const pager = `<div class="gridpager">` +
+    `<select id="listView">${viewOpts.map(([v, lbl]) => `<option value="${v}" ${state.listView === v ? "selected" : ""}>${lbl}</option>`).join("")}</select>` +
+    `<button class="gbtn pgbtn" id="pgPrev" ${(li.page || 1) <= 1 ? "disabled" : ""}>‹ Prev</button>` +
+    `<span class="pginfo">Page ${(li.page || 1).toLocaleString()} / ${(li.pages || 1).toLocaleString()} · ` +
+    `${(li.view_total || 0).toLocaleString()}${state.listView !== "all" ? " in view" : " leads"}` +
+    `${li.view_total !== li.count ? ` (of ${(li.count || 0).toLocaleString()})` : ""}</span>` +
+    `<button class="gbtn pgbtn" id="pgNext" ${(li.page || 1) >= (li.pages || 1) ? "disabled" : ""}>Next ›</button></div>`;
+  gt.innerHTML = pager + `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
+  const goPage = p => { state.page = p; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh(); };
+  const lvSel = gt.querySelector("#listView");
+  if(lvSel) lvSel.onchange = () => { state.listView = lvSel.value; state.page = 1; state.filter = "all"; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh(); };
+  const pgP = gt.querySelector("#pgPrev"); if(pgP) pgP.onclick = () => { if((li.page || 1) > 1) goPage((li.page || 1) - 1); };
+  const pgN = gt.querySelector("#pgNext"); if(pgN) pgN.onclick = () => { if((li.page || 1) < (li.pages || 1)) goPage((li.page || 1) + 1); };
   gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; state.rowCap = ROW_CAP_STEP; renderGrid(d); });
   const indSel = gt.querySelector("#indFilter");
   if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; state.rowCap = ROW_CAP_STEP; renderGrid(d); };

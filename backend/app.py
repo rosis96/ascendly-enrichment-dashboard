@@ -1403,24 +1403,43 @@ async def upload(list_id: int, file: UploadFile = File(...), mapping: Optional[s
         s.close()
 
 
+def _list_view_filter(q, view):
+    """Server-side filter so the chips work across the WHOLE list, not just a page."""
+    if view == "notrun":
+        return q.filter(or_(Lead.status == None, Lead.status.in_(["", "pending", "running"])))  # noqa: E711
+    if view == "enriched":
+        return q.filter(Lead.status == "done")
+    if view == "nonicp":
+        return q.filter(Lead.icp_decision == "Non-ICP")
+    if view == "title_rejected":
+        return q.filter(Lead.title_status == "rejected")
+    return q
+
+
 @app.get("/api/lists/{list_id}")
-def get_list(list_id: int):
+def get_list(list_id: int, page: int = 1, page_size: int = LIST_LEAD_CAP, view: str = "all"):
     s = SessionLocal()
     try:
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        # CAP: never load an entire huge list into memory (that OOMs the container).
-        # The grid windows to a few hundred rows anyway; big lists are browsed via
-        # the paginated Database view.
+        # Paginated + filterable so a 50k+ list is fully browsable without ever
+        # loading it all into memory.
+        page = max(1, int(page or 1))
+        page_size = min(max(1, int(page_size or LIST_LEAD_CAP)), 1000)
         total = s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0
-        leads = (s.query(Lead).filter_by(list_id=list_id)
-                 .order_by(Lead.id).limit(LIST_LEAD_CAP).all())
+        view_total = _list_view_filter(
+            s.query(func.count(Lead.id)).filter_by(list_id=list_id), view).scalar() or 0
+        leads = (_list_view_filter(s.query(Lead).filter_by(list_id=list_id), view)
+                 .order_by(Lead.id).offset((page - 1) * page_size).limit(page_size).all())
+        pages = max(1, (view_total + page_size - 1) // page_size)
         job = (s.query(Job).filter_by(list_id=list_id)
                .order_by(Job.created_at.desc()).first())
         return {
             "list": {"id": l.id, "name": l.name, "variable_set": l.variable_set,
-                     "count": total, "shown": len(leads), "truncated": total > len(leads)},
+                     "count": total, "shown": len(leads), "truncated": total > len(leads),
+                     "view": view, "view_total": view_total,
+                     "page": page, "page_size": page_size, "pages": pages},
             "leads": [{
                 "id": ld.id, "first_name": ld.first_name, "last_name": ld.last_name,
                 "title": ld.title, "company": ld.company, "website": ld.website,
