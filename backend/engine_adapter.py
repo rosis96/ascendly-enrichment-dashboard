@@ -598,40 +598,60 @@ def classify_icp(client_profile, icp_cfg, website_content):
 
     client_block = _icp_client_block(client_profile)
     rules_block = "\n".join(f"- {r}" for r in hard_rules) or "- (none)"
-    q_block = "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)) or "- (none)"
-    prompt = f"""You are an ICP qualification analyst. Decide whether the COMPANY below is a good client for OUR client, strictly using the configuration provided. Be decisive and conservative: high-value B2B alone is NOT enough — there must be a reachable buyer universe, a large enough TAM, and realistic serviceability.
+    icp_desc = icp_cfg.get('icp_description') or '(not provided)'
+    non_icp_desc = icp_cfg.get('non_icp_description') or '(not provided)'
+    prompt = f"""Classify whether the COMPANY is ICP, using ONLY the rules below. The
+ICP Description, Non-ICP Description, and Hard Rejection Rules are the COMPLETE and
+ONLY criteria. Do not add criteria of your own.
 
-OUR CLIENT (who we'd be doing outbound for):
-{client_block or '- (not provided)'}
+DECISION PROCEDURE (follow exactly, in order):
+1. If the company matches ANY Hard Rejection Rule -> "Non-ICP".
+2. Else if it clearly matches the Non-ICP Description -> "Non-ICP".
+3. Else if it matches the ICP Description (e.g. its industry/type is one named or
+   implied as a fit) and no hard rule applies -> "ICP".
+4. If it partially matches or you are uncertain but it is plausibly a fit -> "Possible ICP".
+5. If the website is too thin / info is missing to tell -> "Needs Review" (NEVER "Non-ICP" for missing info).
 
-ICP DESCRIPTION (who we WANT):
-{icp_cfg.get('icp_description') or '(not provided)'}
+CRITICAL RULES:
+- Judge ONLY by the configuration below + observable facts on the website.
+- A company that matches the ICP industries/types is ICP even if it is a product,
+  hardware, or manufacturing company. Do NOT require it to be a "service provider".
+- Do NOT invent reasons such as "not high-value enough", "not a service provider",
+  "not suitable for revenue optimization", "no enterprise focus", "no clear sales
+  process", or "may not generate enough revenue" — those are NOT in the config.
+- Never CONTRADICT yourself: if your reason says it matches the ICP, the decision
+  MUST be "ICP" or "Possible ICP", never "Non-ICP".
+- Reject ONLY via a Hard Rejection Rule or a clear Non-ICP Description match, and
+  name which one in primary_reject_reason.
 
-NON-ICP DESCRIPTION (who we do NOT want):
-{icp_cfg.get('non_icp_description') or '(not provided)'}
+ICP DESCRIPTION (who we WANT — authoritative):
+{icp_desc}
 
-HARD REJECTION RULES — apply these FIRST. If the company matches ANY, the decision is "Non-ICP":
+NON-ICP DESCRIPTION (who we do NOT want — authoritative):
+{non_icp_desc}
+
+HARD REJECTION RULES (any match = Non-ICP):
 {rules_block}
 
-QUALIFICATION QUESTIONS — reason through these before deciding:
-{q_block}
+BACKGROUND ONLY — who we'd do outbound for (context, NOT a criterion; do not use
+this to judge whether we could "help" them):
+{client_block or '- (not provided)'}
 
 COMPANY WEBSITE CONTENT:
 {(website_content or '')[:9000]}
 
 Return ONLY a JSON object with exactly these keys:
-- final_decision: one of "ICP", "Possible ICP", "Needs Review", "Non-ICP"
-- fit_score: integer 0-100
-- confidence: integer 0-100
-- business_model: short string (e.g. "B2B SaaS", "B2C ecommerce", "Local services")
-- buyer_reachability: short string (can buyers be identified/reached via outbound?)
-- serviceability: short string (can we realistically deliver pipeline?)
-- tam_estimate: short string (rough size of the outbound-addressable market)
-- revenue_model: short string
-- primary_icp_reason: one sentence on why it fits (empty if rejected)
-- primary_reject_reason: one sentence on why rejected (empty if a fit)
-- summary: 1-2 sentence overall rationale
-Apply hard rejection rules before anything else."""
+- final_decision: "ICP" | "Possible ICP" | "Needs Review" | "Non-ICP"
+- fit_score: integer 0-100 (how well it matches the ICP Description)
+- confidence: integer 0-100 (how sure you are, given the website detail)
+- business_model: short observable description (e.g. "B2B industrial manufacturer")
+- buyer_reachability: short observable note (e.g. "has sales/contact, reachable")
+- serviceability: short note — DESCRIPTIVE ONLY, must NOT affect the decision
+- tam_estimate: short note — DESCRIPTIVE ONLY, must NOT affect the decision
+- revenue_model: short observable note
+- primary_icp_reason: which ICP criterion it matched (empty if Non-ICP)
+- primary_reject_reason: which Hard Rule or Non-ICP criterion it matched (empty if a fit)
+- summary: 1-2 sentence rationale, consistent with final_decision"""
     try:
         api = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=4, timeout=90.0)
         resp = api.chat.completions.create(
@@ -639,7 +659,7 @@ Apply hard rejection rules before anything else."""
             max_completion_tokens=500,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "You classify companies for outbound ICP fit. Output strict JSON only. Apply hard rejection rules first."},
+                {"role": "system", "content": "You classify companies for ICP fit using ONLY the provided ICP/Non-ICP descriptions and hard rejection rules. Never add your own criteria. Never reject a matching company for a vague reason. Output strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
         )
