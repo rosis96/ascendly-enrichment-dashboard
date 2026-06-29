@@ -43,8 +43,10 @@ EXTRACT_TEMPERATURE = os.getenv("EXTRACT_TEMPERATURE", "0")
 WRITER_TEMPERATURE = os.getenv("WRITER_TEMPERATURE", "0.6")
 
 # Content budgets. The old 2500 cap starved both the extractor and the writer.
-MAX_TOTAL_CONTENT_CHARS = int(os.getenv("MAX_TOTAL_CONTENT_CHARS", "9000"))
-EXTRACT_CONTENT_CHARS = int(os.getenv("EXTRACT_CONTENT_CHARS", "9000"))
+# Raised to ~14k so the extra priority pages (now up to 5-6) actually reach the
+# model instead of being truncated. Tune via env if token cost is a concern.
+MAX_TOTAL_CONTENT_CHARS = int(os.getenv("MAX_TOTAL_CONTENT_CHARS", "14000"))
+EXTRACT_CONTENT_CHARS = int(os.getenv("EXTRACT_CONTENT_CHARS", "14000"))
 # The writer already receives the distilled verified facts, so it needs less raw
 # page text than the extractor. Smaller = cheaper input tokens per lead.
 WRITER_CONTENT_CHARS = int(os.getenv("WRITER_CONTENT_CHARS", "6000"))
