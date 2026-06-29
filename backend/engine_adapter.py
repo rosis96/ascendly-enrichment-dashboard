@@ -936,8 +936,8 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
     pasted_rules = [str(r) for r in ((profile or {}).get("_global_output_rules") or []) if str(r).strip()]
     vs = {
         "variable_set_name": "dashboard",
-        "max_tokens": base_spec.get("max_tokens", 2200),
-        "temperature": base_spec.get("temperature", 0.7),
+        "max_tokens": (profile or {}).get("_max_tokens") or base_spec.get("max_tokens", 2200),
+        "temperature": (profile or {}).get("_temperature") if (profile or {}).get("_temperature") is not None else base_spec.get("temperature", 0.7),
         "output_keys": [v["name"] for v in variables],
         "global_output_rules": base_rules + website_rules + role_lock + pasted_rules + user_rules,
         "variables": variables,

@@ -1311,7 +1311,7 @@ function renderFormat(profile, fmt, sets, idByName){
     `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
-      ? `<button class="gbtn" id="fmtJsonBtn" style="margin-left:auto;padding:6px 11px">Paste Format JSON</button><button class="gbtn" id="dlJsonBtn" style="padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste variables JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
+      ? `<button class="gbtn" id="fmtJsonBtn" style="margin-left:auto;padding:6px 11px">Paste Format JSON</button><button class="gbtn" id="dlJsonBtn" style="padding:6px 11px">Download JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
       : `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`) +
     `</div>`;
   h += builderHtml();

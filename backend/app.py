@@ -156,6 +156,11 @@ def _profile_for(s, key, base):
     rules = fmt.get("global_output_rules")
     if isinstance(rules, list) and rules:
         prof["_global_output_rules"] = rules
+    for mk in ("temperature", "max_tokens"):
+        if fmt.get(mk) is not None:
+            prof["_" + mk] = fmt[mk]
+    if fmt.get("skip_icp"):
+        prof["skip_icp"] = True
     return prof
 
 init_db()
@@ -1901,23 +1906,32 @@ def save_section_json(slug: str, body: SectionJsonBody):
             sections["icp_definition"] = data if isinstance(data, dict) else {}
             result = {"ok": True, "section": sec}
         elif sec == "format":
+            # Accept a full format object {variables, global_output_rules, ...} OR a
+            # bare array of variables. Store every variable's spec VERBATIM so the
+            # engine sees all the rich rules (writing_rules, placeholder_rules,
+            # hard_requirements, example_outputs...) exactly like the Mac JSON.
             d = data if isinstance(data, dict) else {}
-            sections["format"] = {k: d.get(k) for k in ("global_output_rules", "temperature", "max_tokens")
-                                  if d.get(k) is not None}
+            variables = d.get("variables")
+            if variables is None and isinstance(data, list):
+                variables = data
+            variables = variables or []
+            sections["format"] = {k: d.get(k) for k in (
+                "global_output_rules", "temperature", "max_tokens", "output_keys",
+                "skip_icp", "variable_set_name", "profile_version") if d.get(k) is not None}
             count = 0
-            for v in (d.get("variables") or []):
+            for v in variables:
                 if not isinstance(v, dict):
                     continue
-                spec = ea.build_custom_spec(
-                    label=v.get("label") or v.get("name") or "Variable",
-                    template=v.get("template", "") or "", placeholders=v.get("placeholders", []) or [],
-                    min_words=v.get("min_words"), max_words=v.get("max_words"),
-                    purpose=v.get("purpose") or v.get("guidance", "") or "", examples=v.get("examples", []) or [])
-                ex = s.query(CustomVariable).filter_by(variable_set=slug, name=spec["name"]).first()
+                spec = dict(v)                       # keep the FULL spec, untouched
+                name = spec.get("name") or ea.slugify(spec.get("label") or "variable")
+                spec["name"] = name
+                spec["label"] = spec.get("label") or name.replace("_", " ").title()
+                spec["custom"] = True
+                ex = s.query(CustomVariable).filter_by(variable_set=slug, name=name).first()
                 if ex:
                     ex.label = spec["label"]; ex.spec = spec
                 else:
-                    s.add(CustomVariable(variable_set=slug, name=spec["name"], label=spec["label"], spec=spec))
+                    s.add(CustomVariable(variable_set=slug, name=name, label=spec["label"], spec=spec))
                 count += 1
             result = {"ok": True, "section": sec, "variables_imported": count}
         else:
