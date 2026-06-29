@@ -74,28 +74,55 @@ ICP-writing rules you must follow:
 - The procedure must instruct: never reject for missing information — when the site is too thin to tell, return the `default`.
 
 === SCHEMA 3 — FORMAT JSON (enrichment variables) ===
-Defines the personalization variables the system writes. Keys:
+Defines the personalization variables the system writes. Use these EXACT keys so
+every field fills in the editor.
 {
   "temperature": 0.7,
-  "max_tokens": 2200,
+  "max_tokens": 2400,
   "global_output_rules": [
-    "Rules every variable obeys. e.g. 'Use only facts on the prospect's website.', 'Pitch the CLIENT's offer, never the prospect's own service.', 'No fabricated numbers.'"
+    "Rules that apply to EVERY variable (short plain strings). e.g. 'Use only facts on the prospect website.', 'Pitch the CLIENT offer, never the prospect own service.', 'No fabricated numbers.', 'No em dash.'"
   ],
   "variables": [
     {
-      "label": "Human name of the variable, e.g. Value Proposition",
-      "min_words": 25,
-      "max_words": 60,
-      "guidance": "Plain-English instructions for how to write this variable.",
-      "template": "Optional. Use {{placeholders}} for fill-in parts. e.g. 'We help {{industry}} get more clients by {{mechanism}}.'",
-      "examples": ["1-3 strong sample outputs"],
+      "label": "Value Proposition",
+      "name": "value_proposition",
+      "min_words": 42,
+      "max_words": 80,
+      "guidance": "Plain-English direction for how to write this whole variable.",
+      "template": "Optional. Use {{placeholders}} for fill-in parts. Omit for free-form variables.",
       "placeholders": [
-        { "token": "industry", "description": "what goes here", "examples": ["manufacturers", "MSPs"] }
-      ]
+        {
+          "token": "revenue_result",
+          "description": "What goes in this slot and how to write it.",
+          "min_words": 3,
+          "max_words": 8,
+          "examples": ["qualified pipeline growth", "sales opportunity growth"]
+        }
+      ],
+      "rules": [
+        {
+          "rule": "Rule 1 — short title of the rule",
+          "how": "Explain exactly how to satisfy this rule.",
+          "examples": ["a good example", "another good example"]
+        },
+        {
+          "rule": "Rule 2 — ...",
+          "how": "...",
+          "examples": ["..."]
+        }
+      ],
+      "examples": ["1-3 full sample outputs of the entire variable"]
     }
   ]
 }
-Notes: only "label" is required per variable; template/placeholders are optional (omit for free-form variables). Each variable's internal key is derived from its label automatically.
+RULES — IMPORTANT (this is the structure the user wants):
+- Per variable, use a "rules" array. Each entry is an OBJECT: { "rule": short title, "how": full explanation, "examples": [strings] }. This is how you explain, per variable (e.g. personalized_first_line), exactly how to write it with examples. Do NOT cram everything into one line.
+- Keep "global_output_rules" for rules that apply to ALL variables (short strings).
+PLACEHOLDERS:
+- For every {{token}} in "template", add a matching object to "placeholders" with token, description, min_words, max_words, examples. This fills the editor's placeholder boxes.
+NOTES:
+- Only "label" is required; "name" is optional (auto-derived from label). template/placeholders/rules are optional. Free-form variables (like a first line) usually just need guidance + examples, no template.
+- ICPReview and ICP_reason are produced automatically; you may include them with allowed_values/fallback if you want to override, but you don't have to.
 
 INTERVIEW QUESTIONS TO ASK (adapt as needed)
 1. Client name + 1-line on what they do.
@@ -169,31 +196,49 @@ After the blocks, add a 2-3 line "Assumptions / edit these" note if you guessed 
 **FORMAT JSON**
 ```json
 {
-  "temperature": 0.7,
-  "max_tokens": 2200,
+  "temperature": 0.75,
+  "max_tokens": 2400,
   "global_output_rules": [
-    "Use only facts found on the prospect's website.",
-    "Pitch the CLIENT's offer to the prospect; never describe the prospect's own service as if the client provides it.",
-    "No fabricated numbers, revenue, or employee counts."
+    "Use only facts found on the prospect website.",
+    "Pitch the CLIENT offer to the prospect; never describe the prospect own service as if the client provides it.",
+    "No fabricated numbers, revenue, or employee counts.",
+    "No em dash. No emojis. No ALL CAPS."
   ],
   "variables": [
     {
       "label": "Personalized First Line",
-      "min_words": 12,
-      "max_words": 30,
-      "guidance": "One specific observation about the prospect from their website. No pitch, no greeting.",
-      "examples": ["Saw Tulsa Tube Bending runs custom CNC bending for energy and aerospace clients."]
+      "name": "personalized_first_line",
+      "min_words": 8,
+      "max_words": 28,
+      "guidance": "One specific observation proving real research about the prospect. Observation only, no pitch, no question.",
+      "rules": [
+        { "rule": "Rule 1 — Be specific", "how": "Name one real thing from their site: a service, market, customer type, platform, or positioning.", "examples": ["Saw Tulsa Tube Bending runs custom CNC bending for energy and aerospace clients."] },
+        { "rule": "Rule 2 — No pitch, no question", "how": "Do not sell, do not ask anything, do not end with a question mark.", "examples": ["Noticed SecureNorth focuses on compliance-heavy healthcare and finance teams."] },
+        { "rule": "Rule 3 — No praise words", "how": "Avoid impressive, amazing, world-class, cutting-edge.", "examples": ["BrightOps works on ERP rollouts for mid-market manufacturers."] }
+      ],
+      "examples": ["Saw Axis Controls handles PLC programming and robotics for production lines."]
     },
     {
       "label": "Value Proposition",
-      "min_words": 25,
-      "max_words": 60,
-      "guidance": "Pitch the client's offer as the outcome for this prospect.",
-      "template": "We help {{industry}} book more qualified meetings by {{mechanism}}.",
-      "examples": ["We help industrial manufacturers book more qualified meetings by running their outbound on autopilot."],
+      "name": "value_proposition",
+      "min_words": 42,
+      "max_words": 80,
+      "guidance": "Pitch the client outcome for this prospect using the exact 3-sentence winning formula.",
+      "template": "We specialize in {{revenue_result}} for {{company_category}}, by {{mechanism}}. And, I have seen how {{company_name}} {{observation}}. And, from our experience, {{lever}} can {{results}}.",
       "placeholders": [
-        { "token": "industry", "description": "the prospect's industry", "examples": ["industrial manufacturers"] },
-        { "token": "mechanism", "description": "how the client delivers it", "examples": ["AI-run outbound campaigns"] }
+        { "token": "revenue_result", "description": "The specific revenue outcome the client creates for this category.", "min_words": 3, "max_words": 8, "examples": ["qualified pipeline growth", "sales opportunity growth"] },
+        { "token": "company_category", "description": "The category the prospect would use for itself.", "min_words": 2, "max_words": 6, "examples": ["AI implementation firms", "cybersecurity consultancies"] },
+        { "token": "mechanism", "description": "Simple explanation of how the client delivers the outcome.", "min_words": 8, "max_words": 18, "examples": ["running targeted outbound and follow-up around their ideal buyers"] },
+        { "token": "observation", "description": "A grounded observation about what the prospect does.", "min_words": 8, "max_words": 22, "examples": ["helps operations teams deploy practical AI workflows"] },
+        { "token": "lever", "description": "The specific lever the client applies.", "min_words": 2, "max_words": 7, "examples": ["structured follow-up", "pipeline recovery"] },
+        { "token": "results", "description": "2-3 commercial outcomes joined naturally.", "min_words": 6, "max_words": 16, "examples": ["increase qualified conversations & reduce stalled deals"] }
+      ],
+      "rules": [
+        { "rule": "Rule 1 — Exact structure", "how": "Three sentences: 'We specialize in ... for ..., by ... . And, I have seen how ... . And, from our experience, ... can ... .'", "examples": [] },
+        { "rule": "Rule 2 — No tech words", "how": "Never mention inboxes, domains, warmup, APIs, scraping, or tools.", "examples": [] }
+      ],
+      "examples": [
+        "We specialize in qualified pipeline growth for AI implementation firms, by running targeted outbound and follow-up around their ideal buyers. And, I have seen how NovaAI helps operations teams deploy practical AI workflows. And, from our experience, structured follow-up can increase qualified conversations & reduce stalled deals."
       ]
     }
   ]

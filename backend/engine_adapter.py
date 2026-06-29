@@ -229,6 +229,76 @@ def extract_tokens(template):
     return seen
 
 
+def _parse_wordcount(wc):
+    m = re.search(r"(\d+)\s*(?:-|to|–|—)\s*(\d+)", str(wc))
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m2 = re.search(r"(\d+)", str(wc))
+    return (None, int(m2.group(1))) if m2 else (None, None)
+
+
+def _ph_one(p):
+    if not isinstance(p, dict):
+        return {}
+    item = {}
+    desc = p.get("description") or p.get("purpose") or p.get("rule") or p.get("style")
+    if desc:
+        item["description"] = desc if isinstance(desc, str) else json.dumps(desc, ensure_ascii=False)
+    mn, mx = p.get("min_words"), p.get("max_words")
+    if (mn is None or mx is None) and p.get("word_count"):
+        pmn, pmx = _parse_wordcount(p.get("word_count"))
+        mn = mn if mn is not None else pmn
+        mx = mx if mx is not None else pmx
+    if mn:
+        item["min_words"] = int(mn)
+    if mx:
+        item["max_words"] = int(mx)
+    ex = p.get("examples") or []
+    if isinstance(ex, str):
+        ex = [x.strip() for x in ex.splitlines() if x.strip()]
+    if ex:
+        item["examples"] = ex
+    return item
+
+
+def normalize_variable(v):
+    """Keep a pasted variable spec VERBATIM (so the engine reads every rule), but
+    also fill the editor-friendly keys so the UI boxes populate:
+      placeholders -> dict {token:{description,min_words,max_words,examples}}
+      example_outputs (from examples / example_outputs_to_model_after / good_examples)
+      purpose (from guidance)
+    Accepts placeholders as a list OR dict, or placeholder_rules as a dict."""
+    spec = dict(v) if isinstance(v, dict) else {}
+    label = str(spec.get("label") or spec.get("name") or "Variable").strip()
+    name = spec.get("name") or slugify(label)
+    spec["name"], spec["label"], spec["custom"] = name, label, True
+
+    ph_out = {}
+    ph_in, pr = spec.get("placeholders"), spec.get("placeholder_rules")
+    if isinstance(ph_in, dict):
+        for tok, p in ph_in.items():
+            ph_out[tok] = _ph_one(p)
+    elif isinstance(ph_in, list):
+        for p in ph_in:
+            if isinstance(p, dict) and p.get("token"):
+                ph_out[p["token"]] = _ph_one(p)
+    elif isinstance(pr, dict):
+        for tok, p in pr.items():
+            ph_out[tok] = _ph_one(p)
+    if ph_out:
+        spec["placeholders"] = ph_out
+
+    if not spec.get("example_outputs"):
+        for k in ("examples", "example_outputs_to_model_after", "good_examples"):
+            val = spec.get(k)
+            if val:
+                spec["example_outputs"] = val if isinstance(val, list) else [val]
+                break
+    if spec.get("guidance") and not spec.get("purpose"):
+        spec["purpose"] = spec["guidance"]
+    return spec
+
+
 def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose="", examples=None):
     """Turn the builder's input into a valid engine-format variable spec.
 

@@ -1922,11 +1922,8 @@ def save_section_json(slug: str, body: SectionJsonBody):
             for v in variables:
                 if not isinstance(v, dict):
                     continue
-                spec = dict(v)                       # keep the FULL spec, untouched
-                name = spec.get("name") or ea.slugify(spec.get("label") or "variable")
-                spec["name"] = name
-                spec["label"] = spec.get("label") or name.replace("_", " ").title()
-                spec["custom"] = True
+                spec = ea.normalize_variable(v)      # keep full spec + fill editor keys
+                name = spec["name"]
                 ex = s.query(CustomVariable).filter_by(variable_set=slug, name=name).first()
                 if ex:
                     ex.label = spec["label"]; ex.spec = spec
