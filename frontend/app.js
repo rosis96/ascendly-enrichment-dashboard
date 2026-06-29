@@ -1161,7 +1161,7 @@ async function builderSave(){
 async function loadFormat(){
   showView("format");
   $("viewTitle").textContent = "Formats";
-  $("viewSub").textContent = "Client profile & how each variable is written";
+  $("viewSub").textContent = "Variables only — client profile & ICP now live in Workspace Builder → Client Strategy";
   const [sets, customs, fmt] = await Promise.all([
     api("/api/variable-sets"),
     api("/api/custom-variables?variable_set=" + state.variableSet),
@@ -1185,21 +1185,12 @@ function renderFormat(profile, fmt, sets, idByName){
   let h = `<div class="fv-sel"><label>Format set <select id="fSet">` +
     sets.map(s => `<option ${s === state.variableSet ? "selected" : ""}>${esc(s)}</option>`).join("") +
     `</select></label></div>`;
-  h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Client profile <span class="muted" style="margin-left:6px">— who we're writing for</span>` +
-    (profile.editable ? `<button class="gbtn" id="profJsonBtn" style="margin-left:auto;padding:6px 11px">Paste profile JSON</button><span class="vacts"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div><div class="card">`;
-  if(profile.editable){
-    profile.fields.forEach(f => {
-      h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">` +
-        `<textarea class="pfield" data-key="${esc(f.key)}" rows="3" placeholder="Describe ${esc(f.label.toLowerCase())}">${esc(f.value)}</textarea></div></div>`;
-    });
-    h += `<div class="brow" style="margin-top:10px"><button class="run" id="wsSaveProfile">Save profile</button><span class="savedmsg" id="wsSavedMsg"></span></div>`;
-  } else if(profile.fields.length){
-    profile.fields.forEach(f => { h += `<div class="kv"><div class="k">${esc(f.label)}</div><div class="v">${esc(f.value)}</div></div>`; });
-  } else {
-    h += `<div class="v sk">No profile fields.</div>`;
-  }
-  h += `</div>`;
-  if(profile.editable) h += profJsonPanelHtml();
+  h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Client profile` +
+    (profile.editable ? `<span class="vacts" style="margin-left:auto"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div>`;
+  h += `<div class="card" style="display:flex;align-items:center;gap:14px;justify-content:space-between">` +
+    `<div class="v" style="color:var(--muted);line-height:1.5">Client profile is managed in <b>Workspace Builder → Client Strategy</b>. This page only manages variables.</div>` +
+    (profile.editable ? `<button class="gbtn" id="goBuilderBtn" style="flex:none">Open Workspace Builder →</button>` : "") +
+    `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
       ? `<button class="gbtn" id="dlJsonBtn" style="margin-left:auto;padding:6px 11px">Download JSON</button><button class="gbtn" id="jsonBtn" style="padding:6px 11px">Paste variables JSON</button><button class="run" id="addVarBtn" style="padding:6px 11px">+ Add variable</button>`
@@ -1232,6 +1223,7 @@ function renderFormat(profile, fmt, sets, idByName){
   $("fSet").onchange = e => { state.variableSet = e.target.value; state.client = e.target.value.split("_")[0]; loadEnrichments(); loadFormat(); };
   if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
   if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
+  if($("goBuilderBtn")) $("goBuilderBtn").onclick = loadBuilder;
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
   if($("dlJsonBtn")) $("dlJsonBtn").onclick = downloadJson;
   if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };

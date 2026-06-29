@@ -66,14 +66,88 @@ def _lead_safe(ld):
     return reoon.bucket(ld.verify)[0] == "valid"
 
 
+# Source of truth = Workspace Builder -> Client Strategy. Map its fields onto the
+# profile keys the engine prompt reads (icp / non_icp / icp_summary drive the ICP
+# decision; the rest describe the client). Order: profile_key <- strategy_key.
+_STRATEGY_PROFILE_MAP = [
+    ("service_brief", "business_overview"),
+    ("business_overview", "business_overview"),
+    ("main_offer", "offers"),
+    ("what_we_are_pitching", "offers"),
+    ("target_outcome", "objectives"),
+    ("icp", "icp"),
+    ("icp_summary", "icp"),
+    ("non_icp", "non_icp"),
+    ("positioning", "positioning"),
+    ("buyer_personas", "buyer_personas"),
+    ("competitors", "competitors"),
+    ("deal_size", "deal_size"),
+    ("geo", "geo"),
+    ("constraints", "constraints"),
+    ("permanent_instructions", "instructions"),
+    ("notes", "notes"),
+]
+
+
+def _builder_sections(s, key):
+    row = s.query(WorkspaceConfig).filter_by(variable_set=key).first()
+    return (row.sections if row and isinstance(row.sections, dict) else {}) or {}
+
+
+def _strategy_nonempty(strat):
+    return isinstance(strat, dict) and any(str(strat.get(k) or "").strip() for k in strat)
+
+
+def _knowledge_context(sections, cap=2500):
+    """Light-touch Knowledge injection: concatenate Builder knowledge items into a
+    bounded context block (priority order: after Strategy, before website)."""
+    parts = []
+    for it in (sections.get("knowledge") or []):
+        if not isinstance(it, dict):
+            continue
+        label = (it.get("label") or it.get("kind") or "").strip()
+        body = (it.get("content") or it.get("url") or "").strip()
+        if body:
+            parts.append(f"{label}: {body}" if label else body)
+    return "\n".join(parts)[:cap]
+
+
+def _strategy_to_profile(strat, sections, ws_name, prev_profile):
+    """Build the engine client_profile from the Builder Client Strategy. This is
+    now the SINGLE source of truth for client/ICP context — the old Format profile
+    content is intentionally not used (it's preserved in the DB, just not read)."""
+    prof = {}
+    for pkey, skey in _STRATEGY_PROFILE_MAP:
+        v = strat.get(skey)
+        if isinstance(v, (list, dict)):
+            v = json.dumps(v, ensure_ascii=False)
+        if v and str(v).strip():
+            prof[pkey] = v
+    # preserve only operational toggles (campaign mode), not client-description content
+    if isinstance(prev_profile, dict) and prev_profile.get("skip_icp"):
+        prof["skip_icp"] = prev_profile["skip_icp"]
+    kb = _knowledge_context(sections)
+    if kb:
+        prof["knowledge_base"] = kb
+    prof.setdefault("client_name", ws_name)
+    return prof
+
+
 def _profile_for(s, key, base):
-    """Client profile for enrichment: a workspace's editable profile, or the
-    engine client's full profile file."""
+    """Client profile for enrichment / ICP. SOURCE OF TRUTH = Workspace Builder ->
+    Client Strategy. Falls back to the legacy Format/workspace profile only when
+    the Builder strategy hasn't been filled yet, so unconfigured workspaces keep
+    working. Old Format profile data is never deleted — just not used once Strategy
+    exists."""
     ws = s.query(Workspace).filter_by(slug=key).first()
+    sections = _builder_sections(s, key)
+    strat = sections.get("strategy") or {}
+    if _strategy_nonempty(strat):
+        prev = dict(ws.profile or {}) if ws else {}
+        return _strategy_to_profile(strat, sections, (ws.name if ws else key), prev)
+    # --- legacy fallback (Builder strategy not configured yet) ---
     if ws:
         prof = dict(ws.profile or {})
-        # The role-lock needs the active client's name. Workspace profiles don't
-        # store one, so surface the workspace name as the client/sender identity.
         prof.setdefault("client_name", ws.name)
         return prof
     client = (base or key).split("_")[0]
