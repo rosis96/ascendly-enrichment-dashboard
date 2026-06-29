@@ -1482,14 +1482,21 @@ async function setWorkspace(key, name){
   state.db = null;   // reset Database filters/data/selection/counts on switch
   if(state.poll){ clearInterval(state.poll); state.poll = null; }
   state.running = false;
+  // Always clear the lead grid + panels so switching workspaces never leaves the
+  // previous workspace's leads on screen (data is scoped per workspace; this is a
+  // display reset only — no leads are touched). Without this, clicking Enrichments
+  // after a switch could reveal the old workspace's stale rows.
+  $("grid").hidden = true; $("empty").hidden = false; $("gridtools").hidden = true;
+  const _head = $("head"), _body = $("body");
+  if(_head) _head.innerHTML = ""; if(_body) _body.innerHTML = "";
+  $("enrichPanel").hidden = true; $("importPanel").hidden = true;
+  renderBar({ list: { count: 0 } });
+  updateRunUI();
   await loadEnrichments();
   await loadLists();
   if(state.view === "table"){
     $("viewTitle").textContent = "No list selected";
     $("viewSub").textContent = "Pick a list, or import one";
-    $("grid").hidden = true; $("empty").hidden = false; $("gridtools").hidden = true;
-    renderBar({ list: { count: 0 } });
-    updateRunUI();
   } else if(state.view === "format") loadFormat();
   else if(state.view === "builder"){ builder.tab = builder.tab || "strategy"; loadBuilder(); }
   else if(state.view === "database") loadDatabase();
