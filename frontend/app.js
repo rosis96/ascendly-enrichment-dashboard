@@ -974,6 +974,7 @@ async function loadConfigSections(){
   const c = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/config`);
   cfg.sections = c.sections;
   cfg.outputFields = c.icp_output_fields || [];
+  cfg.icpExample = c.icp_example || { hard_rejection_rules: [], qualification_questions: [] };
   return cfg.sections;
 }
 
@@ -1039,7 +1040,8 @@ function renderIcp(){
   const outFields = (cfg.outputFields || []).map(f =>
     `<span class="tag" style="background:var(--acc-bg);color:var(--acc-tx);margin:2px">${esc(f.replace(/_/g," "))}</span>`).join(" ");
   $("builderView").innerHTML =
-    `<div class="bhelp">Applied in order: <b>Hard Rejection Rules first</b> (any match → Non-ICP), then ICP/Non-ICP criteria and the qualification questions. Returns one of: ICP · Possible ICP · Needs Review · Non-ICP. Editing here changes classification immediately.</div>` +
+    `<div class="bhelp">Applied in order: <b>Hard Rejection Rules first</b> (any match → Non-ICP), then ICP/Non-ICP criteria and the qualification questions. Returns one of: ICP · Possible ICP · Needs Review · Non-ICP. Editing here changes classification immediately. ` +
+    `<a id="icpLoadExample" style="color:var(--acc-tx);cursor:pointer">Load example template</a></div>` +
     `<label class="bf"><span class="bf-l">ICP Description — who we want to target</span><textarea id="icpDesc" rows="4">${esc(icp.icp_description || "")}</textarea></label>` +
     `<label class="bf" style="margin-top:12px"><span class="bf-l">Non-ICP Description — who we do NOT target</span><textarea id="nonIcpDesc" rows="4">${esc(icp.non_icp_description || "")}</textarea></label>` +
     `<div class="card" style="margin-top:14px">${icpListBlock("Hard Rejection Rules", "If a company matches ANY of these, it is automatically Non-ICP.", "hard_rejection_rules", icp.hard_rejection_rules)}</div>` +
@@ -1068,6 +1070,15 @@ function wireIcp(){
     b.onclick = () => { icpCollect(); const k = b.dataset.add; cfg.sections.icp[k] = (cfg.sections.icp[k] || []).concat([""]); renderIcp(); });
   $("builderView").querySelectorAll("[data-rm]").forEach(a =>
     a.onclick = () => { icpCollect(); const [k, i] = a.dataset.rm.split(":"); cfg.sections.icp[k].splice(parseInt(i, 10), 1); renderIcp(); });
+  const ex = $("icpLoadExample");
+  if(ex) ex.onclick = () => {
+    if(!confirm("Load the example hard rejection rules and qualification questions into this workspace? (You can edit or remove them, then Save.)")) return;
+    icpCollect();
+    const e = cfg.icpExample || {};
+    cfg.sections.icp.hard_rejection_rules = (cfg.sections.icp.hard_rejection_rules || []).concat(e.hard_rejection_rules || []);
+    cfg.sections.icp.qualification_questions = (cfg.sections.icp.qualification_questions || []).concat(e.qualification_questions || []);
+    renderIcp();
+  };
   $("icpSave").onclick = () => { icpCollect(); saveConfig("icpMsg"); };
 }
 

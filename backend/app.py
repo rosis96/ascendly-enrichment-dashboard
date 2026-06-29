@@ -1752,12 +1752,14 @@ _CONFIG_DEFAULTS = {
         "target_outcome": "", "buyer_persona": "", "deal_size": "",
         "geo": "", "notes": "", "permanent_instructions": "",
     },
-    # Section 2 — ICP / Non-ICP (the classification logic; single source of truth)
+    # Section 2 — ICP / Non-ICP (the classification logic; single source of truth).
+    # Starts EMPTY so a new workspace is a clean slate. Users add their own rules,
+    # or click "Load example template" in the UI to pull in the starter set.
     "icp": {
         "icp_description": "",
         "non_icp_description": "",
-        "hard_rejection_rules": list(DEFAULT_HARD_REJECTION_RULES),
-        "qualification_questions": list(DEFAULT_QUALIFICATION_QUESTIONS),
+        "hard_rejection_rules": [],
+        "qualification_questions": [],
     },
     # --- legacy/hidden sections kept so older saved configs round-trip safely ---
     "strategy": {},
@@ -1830,10 +1832,13 @@ def get_workspace_config(variable_set: str):
     try:
         row = s.query(WorkspaceConfig).filter_by(variable_set=variable_set).first()
         sections = _config_with_defaults(row.sections if row else {})
-        sections = _prefill_config_from_profile(s, variable_set, sections)
+        # No auto-seeding / auto-prefill: a workspace shows ONLY what was saved (or
+        # empty). This avoids "old/template config appearing in a new workspace".
         return {"variable_set": variable_set, "sections": sections,
                 "saved": bool(row),
-                "icp_output_fields": ICP_OUTPUT_FIELDS}
+                "icp_output_fields": ICP_OUTPUT_FIELDS,
+                "icp_example": {"hard_rejection_rules": list(DEFAULT_HARD_REJECTION_RULES),
+                                "qualification_questions": list(DEFAULT_QUALIFICATION_QUESTIONS)}}
     finally:
         s.close()
 
