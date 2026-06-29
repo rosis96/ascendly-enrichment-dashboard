@@ -72,7 +72,7 @@
         <span class="credits" id="credits"></span>
         <label class="onlysafe" title="Only enrich emails Reoon marked safe"><input type="checkbox" id="onlySafe" checked /> Only Safe</label>
         <span class="selinfo" id="selInfo" hidden></span>
-        <label class="lim" id="limWrap">Test first <input id="limitN" type="number" min="1" value="10" /> leads</label>
+        <label class="lim" id="limWrap" title="How many NOT-YET-RUN leads to process across the whole list (not just the 1000 shown). Leave blank to run all remaining. Ignored when you tick specific leads.">Run <input id="limitN" type="number" min="1" placeholder="all" /> not-run</label>
         <label class="lim" id="workersWrap" title="Rows processed in parallel (1-100). High values (e.g. 100) are great for Classify; keep Enrich around 10.">Workers <input id="workersN" type="number" min="1" max="100" value="10" /></label>
       </div>
       <button class="gbtn" id="varsBtn"><i data-i="cols"></i> Variables</button>

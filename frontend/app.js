@@ -476,74 +476,60 @@ function renderBar(d){
 
 async function startJob(kind){
   if(!state.listId || state.running) return;
-  const d = await api(`/api/lists/${state.listId}`);
-  const leads = d.leads || [];
-
-  let candidates, scope;
-  if(state.selectedLeads.size > 0){
-    candidates = leads.filter(l => state.selectedLeads.has(l.id));
-    scope = { lead_ids: [...state.selectedLeads] };
-  } else {
-    const lim = parseInt($("limitN").value, 10);
-    if(lim > 0){ candidates = leads.slice(0, lim); scope = { limit: lim }; }
-    else { candidates = leads; scope = {}; }
-  }
-
   const onlySafe = $("onlySafe").checked;
-  // resume-aware eligibility: skip leads already done
-  let eligible;
-  if(kind === "verify"){
-    eligible = candidates.filter(l => !hasVerify(l));
-  } else if(kind === "classify"){
-    eligible = candidates.filter(l => !l.industry);
-  } else if(kind === "titlecheck"){
-    eligible = candidates.filter(l => !l.title_status);
-  } else if(kind === "esp"){
-    eligible = candidates.filter(l => !l.esp);
-  } else if(kind === "pipeline"){
-    eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
-  } else {
-    eligible = candidates.filter(l => (!onlySafe || isSafeLead(l)) && !hasResult(l));
-  }
-
-  let skipDone = true;
-  if(eligible.length === 0){
-    if(kind === "verify"){ alert("All leads in scope are already verified."); return; }
-    if(kind === "classify"){ alert("All leads in scope are already classified."); return; }
-    if(kind === "titlecheck"){
-      if(!confirm("All leads in scope are already title-checked. Re-check them?")) return;
-      skipDone = false; eligible = candidates;
-    } else if(kind === "esp"){
-      if(!confirm("All leads in scope already have an ESP result. Re-check them?")) return;
-      skipDone = false; eligible = candidates;
-    } else {
-      if(!confirm("All leads in scope are already enriched. Re-run and overwrite their copy? (Use this to regenerate with the latest rules.)")) return;
-      skipDone = false;
-      eligible = kind === "pipeline" ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
-    }
-    if(eligible.length === 0){ alert("Nothing to run in this scope."); return; }
-  }
-  const count = eligible.length;
-
+  const w = parseInt(($("workersN") || {}).value, 10);
   const verb = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "esp" ? "ESP-check" : (kind === "pipeline" ? "verify + enrich" : "enrich"))));
-  // title check and ESP are free, so no credit confirmation
+  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "esp" ? "esp-check" : (kind === "pipeline" ? "run-pipeline" : "run"))));
+
+  let scope, skipDone = true, count;
+
+  if(state.selectedLeads.size > 0){
+    // ---- explicit selection from the visible grid ----
+    const d = await api(`/api/lists/${state.listId}`);
+    const candidates = (d.leads || []).filter(l => state.selectedLeads.has(l.id));
+    let eligible;
+    if(kind === "verify") eligible = candidates.filter(l => !hasVerify(l));
+    else if(kind === "classify") eligible = candidates.filter(l => !l.industry);
+    else if(kind === "titlecheck") eligible = candidates.filter(l => !l.title_status);
+    else if(kind === "esp") eligible = candidates.filter(l => !l.esp);
+    else if(kind === "pipeline") eligible = candidates.filter(l => !hasVerify(l) || (isSafeLead(l) && !hasResult(l)));
+    else eligible = candidates.filter(l => (!onlySafe || isSafeLead(l)) && !hasResult(l));
+    if(eligible.length === 0){
+      if(kind === "verify"){ alert("All selected leads are already verified."); return; }
+      if(kind === "classify"){ alert("All selected leads are already classified."); return; }
+      if(!confirm("All selected leads are already done. Re-run and overwrite?")) return;
+      skipDone = false;
+      eligible = (kind === "pipeline") ? candidates : candidates.filter(l => !onlySafe || isSafeLead(l));
+      if(eligible.length === 0){ alert("Nothing to run."); return; }
+    }
+    scope = { lead_ids: [...state.selectedLeads] };
+    count = eligible.length;
+  } else {
+    // ---- whole list: the SERVER picks the first N not-yet-done leads across all
+    //      52k+ (not just the 1000 shown). Blank number = all remaining. ----
+    const lim = parseInt($("limitN").value, 10);
+    scope = (lim > 0) ? { limit: lim } : {};
+    count = (lim > 0) ? lim : (state.lastCount || 0);
+  }
+
   if(kind !== "titlecheck" && kind !== "esp"){
     const credit = kind === "verify" ? "Reoon" : (kind === "classify" ? "a little OpenAI" : (kind === "pipeline" ? "Reoon + OpenAI" : "OpenAI"));
-    if(count > 50 && !confirm(`This will ${verb} ${count} leads and use ${credit} credit. Continue?`)) return;
+    const howMany = state.selectedLeads.size ? `${count}` : (scope.limit ? `up to ${scope.limit}` : "all not-yet-done");
+    if((count > 50 || !state.selectedLeads.size) && !confirm(`This will ${verb} ${howMany} leads and use ${credit} credit. Continue?`)) return;
   }
 
-  const ep = kind === "verify" ? "verify" : (kind === "classify" ? "classify" : (kind === "titlecheck" ? "title-check" : (kind === "esp" ? "esp-check" : (kind === "pipeline" ? "run-pipeline" : "run"))));
   const body = Object.assign({ skip_done: skipDone }, scope);
   if(kind === "enrich" || kind === "pipeline") body.enrichments = state.selected;
   if(kind === "enrich") body.only_safe = onlySafe;
-  const w = parseInt(($("workersN") || {}).value, 10);
   if(w > 0) body.workers = w;
 
-  const { job_id } = await api(`/api/lists/${state.listId}/${ep}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  startPolling(job_id);
+  let r;
+  try{
+    r = await api(`/api/lists/${state.listId}/${ep}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  }catch(e){ alert("Couldn't start: " + (e.message || "")); return; }
+  if(!r.job_id || !r.count){ alert("Nothing left to run — every lead in this scope is already done."); return; }
+  startPolling(r.job_id);
 }
 
 const run = () => startJob("enrich");

@@ -1443,41 +1443,51 @@ def get_list(list_id: int):
 
 @app.post("/api/lists/{list_id}/run")
 def run_list(list_id: int, body: RunBody):
+    # Pick the first N leads that STILL NEED enrichment across the WHOLE list (not
+    # just the first 1000 shown in the grid). skip_done + only_safe are applied
+    # BEFORE the limit, so `limit=N` means "the next N not-yet-enriched safe leads".
+    # Streamed (id/result/verify only) so a 50k+ list stays memory-flat.
     s = SessionLocal()
     try:
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        cols = (s.query(Lead.id, Lead.result, Lead.verify)
+                .filter(Lead.list_id == list_id).order_by(Lead.id))
         if body.lead_ids:
-            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
-        elif body.limit and body.limit > 0:
-            candidates = q.limit(body.limit).all()
-        else:
-            candidates = q.all()
-        # Verify-first: only enrich leads Reoon marked safe/deliverable.
-        safe_leads = [ld for ld in candidates if _lead_safe(ld)] if body.only_safe else list(candidates)
-        skipped_unsafe = len(candidates) - len(safe_leads)
-        if body.skip_done:
-            targets = [ld for ld in safe_leads if not ld.result]  # resume: skip already enriched
-        else:
-            targets = safe_leads
-            for ld in targets:
-                ld.status = "pending"
-                ld.result = {}
-        skipped_done = len(safe_leads) - len(targets)
-        job = Job(list_id=list_id, variable_set=l.variable_set, enrichments=body.enrichments,
-                  status="queued" if targets else "done", total=len(targets))
+            cols = cols.filter(Lead.id.in_(body.lead_ids))
+        want = int(body.limit) if (body.limit and body.limit > 0 and not body.lead_ids) else None
+        target_ids, skipped_unsafe = [], 0
+        for lid, result, verify in cols.yield_per(2000):
+            if body.only_safe and not (verify and reoon.bucket(verify)[0] == "valid"):
+                skipped_unsafe += 1
+                continue
+            if body.skip_done and result:
+                continue
+            target_ids.append(lid)
+            if want and len(target_ids) >= want:
+                break
+        vset = l.variable_set
+    finally:
+        s.close()
+    # Re-run mode (skip_done=False): clear those leads so they regenerate.
+    s = SessionLocal()
+    try:
+        if not body.skip_done and target_ids:
+            for i in range(0, len(target_ids), 1000):
+                s.query(Lead).filter(Lead.id.in_(target_ids[i:i + 1000])).update(
+                    {Lead.status: "pending", Lead.result: {}}, synchronize_session=False)
+            s.commit()
+        job = Job(list_id=list_id, variable_set=vset, enrichments=body.enrichments,
+                  status="queued" if target_ids else "done", total=len(target_ids))
         s.add(job)
         s.commit()
         job_id = job.id
-        target_ids = [ld.id for ld in targets]
     finally:
         s.close()
     if target_ids:
         threading.Thread(target=_run_job, args=(job_id, target_ids, body.workers), daemon=True).start()
-    return {"job_id": job_id, "count": len(target_ids),
-            "skipped_unsafe": skipped_unsafe, "skipped_done": skipped_done}
+    return {"job_id": job_id, "count": len(target_ids), "skipped_unsafe": skipped_unsafe}
 
 
 @app.post("/api/lists/{list_id}/verify")
@@ -1522,32 +1532,42 @@ def run_pipeline(list_id: int, body: PipelineBody):
         l = s.get(LeadList, list_id)
         if not l:
             raise HTTPException(404, "List not found")
-        q = s.query(Lead).filter_by(list_id=list_id).order_by(Lead.id)
+        # Pick the first N leads still needing work across the WHOLE list (skip_done
+        # applied BEFORE the limit). Streamed so 50k+ stays memory-flat.
+        cols = (s.query(Lead.id, Lead.result, Lead.verify)
+                .filter(Lead.list_id == list_id).order_by(Lead.id))
         if body.lead_ids:
-            candidates = q.filter(Lead.id.in_(body.lead_ids)).all()
-        elif body.limit and body.limit > 0:
-            candidates = q.limit(body.limit).all()
-        else:
-            candidates = q.all()
+            cols = cols.filter(Lead.id.in_(body.lead_ids))
+        want = int(body.limit) if (body.limit and body.limit > 0 and not body.lead_ids) else None
 
-        def done(ld):
-            if not ld.verify:
+        def is_done(result, verify):
+            if not verify:
                 return False
-            safe = reoon.bucket(ld.verify)[0] == "valid"
-            return (not safe) or bool(ld.result)  # nothing left to do
+            safe = reoon.bucket(verify)[0] == "valid"
+            return (not safe) or bool(result)
 
-        if body.skip_done:
-            targets = [ld for ld in candidates if not done(ld)]
-        else:
-            targets = candidates
-            for ld in targets:
-                ld.result = {}  # re-enrich (verification is kept to save credits)
-        job = Job(list_id=list_id, kind="pipeline", status="queued" if targets else "done",
-                  total=len(targets), variable_set=l.variable_set, enrichments=body.enrichments, summary={})
+        target_ids = []
+        for lid, result, verify in cols.yield_per(2000):
+            if body.skip_done and is_done(result, verify):
+                continue
+            target_ids.append(lid)
+            if want and len(target_ids) >= want:
+                break
+        vset = l.variable_set
+    finally:
+        s.close()
+    s = SessionLocal()
+    try:
+        if not body.skip_done and target_ids:
+            for i in range(0, len(target_ids), 1000):
+                s.query(Lead).filter(Lead.id.in_(target_ids[i:i + 1000])).update(
+                    {Lead.result: {}}, synchronize_session=False)  # keep verify to save credits
+            s.commit()
+        job = Job(list_id=list_id, kind="pipeline", status="queued" if target_ids else "done",
+                  total=len(target_ids), variable_set=vset, enrichments=body.enrichments, summary={})
         s.add(job)
         s.commit()
         job_id = job.id
-        target_ids = [ld.id for ld in targets]
     finally:
         s.close()
     if target_ids:
