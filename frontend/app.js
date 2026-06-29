@@ -366,7 +366,21 @@ function updateRunUI(){
   });
   const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
   const sc = $("scope"); if(sc) sc.style.display = t ? "" : "none";
-  const b2 = $("runBtn2"); if(b2) b2.disabled = running;
+  // Bottom bar button: while a run is in progress it BECOMES the Stop button so a
+  // stop control is always next to the progress bar (any view, incl. Database/list).
+  const b2 = $("runBtn2");
+  if(b2){
+    if(running){
+      b2.disabled = false;
+      b2.classList.add("stop");
+      b2.innerHTML = `<i data-i="stop"></i> Stop run`;
+      b2.onclick = stop;
+    } else {
+      b2.classList.remove("stop");
+      b2.innerHTML = `<i data-i="play"></i> Run enrichment`;
+      b2.onclick = run;
+    }
+  }
 }
 
 function hasResult(ld){ return ld.result && Object.keys(ld.result).length > 0; }
