@@ -526,6 +526,182 @@ def _classify_real(lead, tax):
         return "", 0.0
 
 
+ICP_DECISIONS = ["ICP", "Possible ICP", "Needs Review", "Non-ICP"]
+ICP_FIELDS = ["final_decision", "fit_score", "confidence", "business_model",
+              "buyer_reachability", "serviceability", "tam_estimate", "revenue_model",
+              "primary_icp_reason", "primary_reject_reason", "summary"]
+
+
+def _icp_client_block(client_profile):
+    cp = client_profile or {}
+    fields = [
+        ("What the client does", cp.get("what_client_does")),
+        ("Main offer", cp.get("main_offer")),
+        ("What we pitch", cp.get("what_we_pitch")),
+        ("Target outcome", cp.get("target_outcome")),
+        ("Buyer persona", cp.get("buyer_persona")),
+        ("Deal size requirement", cp.get("deal_size")),
+        ("Geographic focus", cp.get("geo")),
+        ("Notes", cp.get("notes")),
+        ("Permanent instructions", cp.get("permanent_instructions")),
+    ]
+    return "\n".join(f"- {k}: {v}" for k, v in fields if v and str(v).strip())
+
+
+def scrape_text(website, max_pages=1):
+    """Homepage (or a few pages) of text for the ICP gate. Cached, cheap. Demo
+    mode returns a stub so the gate can run with no key/network."""
+    if os.getenv("ENRICH_MODE", "demo").lower() != "real":
+        return f"Demo homepage content for {website or 'company'}. We provide B2B services."
+    try:
+        import sys
+        if ENGINE_DIR not in sys.path:
+            sys.path.insert(0, ENGINE_DIR)
+        import run as engine
+        url = engine.normalize_url(website or "")
+        if not url:
+            return ""
+        scraped = engine.scrape_company(url, max_pages=max_pages, use_cache=True)
+        return scraped.get("content", "")
+    except Exception:
+        return ""
+
+
+def classify_icp(client_profile, icp_cfg, website_content):
+    """The dedicated ICP engine. SINGLE source of truth for whether a lead is worth
+    enriching. Applies hard rejection rules FIRST, then the ICP criteria, then
+    returns the structured decision fields. No other prompt participates in ICP.
+
+    Returns (fields_dict, cost). fields_dict always has every ICP_FIELDS key."""
+    icp_cfg = icp_cfg or {}
+    hard_rules = [r for r in (icp_cfg.get("hard_rejection_rules") or []) if str(r).strip()]
+    questions = [q for q in (icp_cfg.get("qualification_questions") or []) if str(q).strip()]
+
+    def _blank(decision="Needs Review", reason="", reject=""):
+        return {
+            "final_decision": decision, "fit_score": 0, "confidence": 0,
+            "business_model": "", "buyer_reachability": "", "serviceability": "",
+            "tam_estimate": "", "revenue_model": "", "primary_icp_reason": reason,
+            "primary_reject_reason": reject, "summary": reason or reject,
+        }
+
+    if not (website_content or "").strip():
+        return _blank("Needs Review", "", "No website content to assess"), 0.0
+
+    if os.getenv("ENRICH_MODE", "demo").lower() != "real":
+        return _icp_demo(client_profile, icp_cfg, website_content, hard_rules), 0.0
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        return _blank(), 0.0
+
+    client_block = _icp_client_block(client_profile)
+    rules_block = "\n".join(f"- {r}" for r in hard_rules) or "- (none)"
+    q_block = "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)) or "- (none)"
+    prompt = f"""You are an ICP qualification analyst. Decide whether the COMPANY below is a good client for OUR client, strictly using the configuration provided. Be decisive and conservative: high-value B2B alone is NOT enough — there must be a reachable buyer universe, a large enough TAM, and realistic serviceability.
+
+OUR CLIENT (who we'd be doing outbound for):
+{client_block or '- (not provided)'}
+
+ICP DESCRIPTION (who we WANT):
+{icp_cfg.get('icp_description') or '(not provided)'}
+
+NON-ICP DESCRIPTION (who we do NOT want):
+{icp_cfg.get('non_icp_description') or '(not provided)'}
+
+HARD REJECTION RULES — apply these FIRST. If the company matches ANY, the decision is "Non-ICP":
+{rules_block}
+
+QUALIFICATION QUESTIONS — reason through these before deciding:
+{q_block}
+
+COMPANY WEBSITE CONTENT:
+{(website_content or '')[:9000]}
+
+Return ONLY a JSON object with exactly these keys:
+- final_decision: one of "ICP", "Possible ICP", "Needs Review", "Non-ICP"
+- fit_score: integer 0-100
+- confidence: integer 0-100
+- business_model: short string (e.g. "B2B SaaS", "B2C ecommerce", "Local services")
+- buyer_reachability: short string (can buyers be identified/reached via outbound?)
+- serviceability: short string (can we realistically deliver pipeline?)
+- tam_estimate: short string (rough size of the outbound-addressable market)
+- revenue_model: short string
+- primary_icp_reason: one sentence on why it fits (empty if rejected)
+- primary_reject_reason: one sentence on why rejected (empty if a fit)
+- summary: 1-2 sentence overall rationale
+Apply hard rejection rules before anything else."""
+    try:
+        api = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=4, timeout=90.0)
+        resp = api.chat.completions.create(
+            model=os.getenv("ICP_MODEL", os.getenv("CLASSIFY_MODEL", "gpt-4o-mini")),
+            max_completion_tokens=500,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You classify companies for outbound ICP fit. Output strict JSON only. Apply hard rejection rules first."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        data = json.loads(resp.choices[0].message.content or "{}")
+    except Exception as exc:
+        return _blank("Needs Review", "", f"ICP error: {type(exc).__name__}"), 0.0
+
+    out = _blank()
+    for k in ICP_FIELDS:
+        if k in data and data[k] is not None:
+            out[k] = data[k]
+    # coerce
+    dec = str(out.get("final_decision") or "").strip()
+    out["final_decision"] = next((d for d in ICP_DECISIONS if d.lower() == dec.lower()), "Needs Review")
+    for nk in ("fit_score", "confidence"):
+        try:
+            out[nk] = max(0, min(100, int(float(out.get(nk) or 0))))
+        except Exception:
+            out[nk] = 0
+    return out, 0.0006
+
+
+def _icp_demo(client_profile, icp_cfg, content, hard_rules):
+    """Deterministic ICP for demo mode (no API). Honors hard rejection keywords so
+    the gating logic can be exercised offline."""
+    text = (content or "").lower()
+    # crude hard-rule keyword check (ecommerce / consumer / local etc.)
+    keywords = {
+        "ecommerce": ["shop", "add to cart", "ecommerce", "online store"],
+        "consumer": ["consumer", "b2c", "for families", "for individuals"],
+        "local": ["serving the local", "local business", "near you", "in your area"],
+    }
+    for rule in hard_rules:
+        rl = rule.lower()
+        for _, cues in keywords.items():
+            if any(c in rl for c in []):  # placeholder, no-op
+                pass
+        if "ecommerce" in rl and any(c in text for c in keywords["ecommerce"]):
+            return _icp_result("Non-ICP", 10, 80, "Ecommerce / B2C", reject="Matches hard rule: ecommerce")
+        if "consumer" in rl and any(c in text for c in keywords["consumer"]):
+            return _icp_result("Non-ICP", 12, 78, "B2C", reject="Matches hard rule: consumer business")
+        if "local" in rl and any(c in text for c in keywords["local"]):
+            return _icp_result("Non-ICP", 15, 75, "Local services", reject="Matches hard rule: local-only business")
+    h = int(hashlib.md5(text.encode()).hexdigest(), 16)
+    score = 40 + (h % 60)
+    if score >= 75:
+        return _icp_result("ICP", score, 70, "B2B", icp="Strong B2B fit with reachable buyers (demo)")
+    if score >= 60:
+        return _icp_result("Possible ICP", score, 55, "B2B", icp="Plausible fit, needs confirmation (demo)")
+    return _icp_result("Needs Review", score, 45, "Unclear", reject="Unclear buyer universe (demo)")
+
+
+def _icp_result(decision, score, conf, model, icp="", reject=""):
+    return {
+        "final_decision": decision, "fit_score": score, "confidence": conf,
+        "business_model": model, "buyer_reachability": "demo", "serviceability": "demo",
+        "tam_estimate": "demo", "revenue_model": "demo",
+        "primary_icp_reason": icp, "primary_reject_reason": reject,
+        "summary": icp or reject,
+    }
+
+
 def _domain_of(lead):
     """Best-effort domain from website or email (no network)."""
     site = (lead.get("website") or "").strip().lower()

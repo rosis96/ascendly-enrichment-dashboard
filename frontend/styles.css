@@ -294,3 +294,9 @@ tbody tr:hover{background:var(--surface)}
 .bitem-g .bf:has(textarea){grid-column:1/-1}
 .bsave{display:flex;align-items:center;gap:14px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 @media(max-width:760px){.bgrid,.bitem-g{grid-template-columns:1fr}}
+
+/* ICP / Client Profile config */
+.ilist{display:flex;flex-direction:column;gap:8px}
+.bitem-row{display:flex;align-items:center;gap:10px}
+.bitem-row input{flex:1;font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text)}
+.bitem-row input:focus{outline:none;border-color:var(--acc-br);box-shadow:0 0 0 3px var(--acc-bg)}

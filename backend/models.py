@@ -32,6 +32,11 @@ class Lead(Base):
     industry = Column(String, default="")    # umbrella industry from website classification
     title_status = Column(String, default="")  # standalone title check: pass | rejected
     esp = Column(String, default="")         # email provider: Microsoft | Google | Other | Unknown
+    # ICP classification (new dedicated ICP engine; full structured fields live in
+    # result["_icp"]). These three are columns for fast filtering/analytics.
+    icp_decision = Column(String, default="", index=True)  # ICP | Possible ICP | Needs Review | Non-ICP
+    icp_score = Column(Integer, index=True)                 # Fit Score 0-100
+    icp_confidence = Column(Integer)                        # Confidence 0-100
     # extracted from the imported row for fast faceted filtering in the Database view
     employees = Column(Integer, index=True)  # numeric employee count (nullable)
     country = Column(String, default="", index=True)

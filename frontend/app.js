@@ -899,7 +899,7 @@ function showView(name){
     $("importPanel").hidden = true;
     $("enrichPanel").hidden = true;
   }
-  const bv = $("builderView"); if(bv) bv.hidden = name !== "builder";
+  const bv = $("builderView"); if(bv) bv.hidden = !["builder", "client", "icp"].includes(name);
   $("formatView").hidden = name !== "format";
   const rv = $("rulesView"); if(rv) rv.hidden = name !== "rules";
   const dv = $("databaseView"); if(dv) dv.hidden = name !== "database";
@@ -937,9 +937,128 @@ async function saveRules(){
   }catch(e){ const m = $("rulesMsg"); if(m) m.textContent = "Save failed"; }
 }
 
-// ============================ WORKSPACE BUILDER ============================
-// Configuration-only editor for the new workspace sections. Saves to
-// /api/workspaces/{key}/config. Does NOT change how enrichment runs today.
+// ===================== CONFIG: Client Profile + ICP =====================
+// Three clear sections (Client Profile, ICP/Non-ICP, Formats). These save to
+// /api/workspaces/{key}/config. The ICP section is the single source of truth for
+// classification; the existing enrichment pipeline reads it.
+
+const cfg = { sections: null, outputFields: [] };
+
+const CLIENT_PROFILE_FIELDS = [
+  ["what_client_does", "What the client does"],
+  ["main_offer", "Main offer"],
+  ["what_we_pitch", "What we pitch"],
+  ["target_outcome", "Target outcome"],
+  ["buyer_persona", "Buyer persona"],
+  ["deal_size", "Deal size requirement"],
+  ["geo", "Geographic focus"],
+  ["notes", "Notes"],
+  ["permanent_instructions", "Permanent instructions"],
+];
+
+async function loadConfigSections(){
+  const c = await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/config`);
+  cfg.sections = c.sections;
+  cfg.outputFields = c.icp_output_fields || [];
+  return cfg.sections;
+}
+
+async function saveConfig(msgId){
+  const m = msgId ? $(msgId) : null;
+  if(m){ m.textContent = "Saving…"; m.style.color = "var(--hint)"; }
+  try{
+    await api(`/api/workspaces/${encodeURIComponent(state.variableSet)}/config`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sections: cfg.sections }) });
+    if(m){ m.textContent = "Saved ✓"; m.style.color = "var(--acc-tx)"; setTimeout(() => { if(m) m.textContent = ""; }, 3500); }
+  }catch(e){ if(m){ m.textContent = "Save failed"; m.style.color = "var(--red-tx)"; } }
+}
+
+// ---- Section 1: Client Profile ----
+async function loadClientProfile(){
+  showView("client");
+  $("viewTitle").textContent = "Client Profile";
+  $("viewSub").textContent = `${esc(state.client || state.variableSet)} — explains the client and the offer only`;
+  $("builderView").innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
+  try{ await loadConfigSections(); }catch(e){ $("builderView").innerHTML = `<div class="muted" style="padding:18px">Couldn't load.</div>`; return; }
+  renderClientProfile();
+}
+
+function renderClientProfile(){
+  const cp = cfg.sections.client_profile || {};
+  const rows = CLIENT_PROFILE_FIELDS.map(([k, label]) =>
+    `<label class="bf"><span class="bf-l">${esc(label)}</span>` +
+    `<textarea data-cp="${k}" rows="3" placeholder="${esc(label)}…">${esc(cp[k] || "")}</textarea></label>`).join("");
+  $("builderView").innerHTML =
+    `<div class="bhelp">This section only describes the client and their offer. ICP/Non-ICP logic lives in the ICP / Non-ICP section.</div>` +
+    `<div class="bgrid">${rows}</div>` +
+    `<div class="bsave"><button class="run" id="cpSave">Save client profile</button><span class="muted" id="cpMsg"></span></div>`;
+  $("cpSave").onclick = () => {
+    const cp2 = {};
+    $("builderView").querySelectorAll("[data-cp]").forEach(el => cp2[el.dataset.cp] = el.value);
+    cfg.sections.client_profile = cp2;
+    saveConfig("cpMsg");
+  };
+}
+
+// ---- Section 2: ICP / Non-ICP ----
+async function loadIcp(){
+  showView("icp");
+  $("viewTitle").textContent = "ICP / Non-ICP";
+  $("viewSub").textContent = "The single source of truth for deciding if a lead is worth enriching";
+  $("builderView").innerHTML = `<div class="muted" style="padding:18px">Loading…</div>`;
+  try{ await loadConfigSections(); }catch(e){ $("builderView").innerHTML = `<div class="muted" style="padding:18px">Couldn't load.</div>`; return; }
+  renderIcp();
+}
+
+function icpListBlock(title, help, key, items){
+  const rows = (items || []).map((v, i) =>
+    `<div class="bitem-row"><input data-il="${key}" value="${esc(v)}" /><a class="bitem-x" data-rm="${key}:${i}">remove</a></div>`).join("");
+  return `<div class="bf-l" style="margin-top:8px">${esc(title)}</div>` +
+    `<div class="bhelp" style="margin:2px 0 8px">${esc(help)}</div>` +
+    `<div class="ilist" data-list="${key}">${rows}</div>` +
+    `<button class="gbtn" data-add="${key}" style="margin-top:6px">+ Add</button>`;
+}
+
+function renderIcp(){
+  const icp = cfg.sections.icp || {};
+  const outFields = (cfg.outputFields || []).map(f =>
+    `<span class="tag" style="background:var(--acc-bg);color:var(--acc-tx);margin:2px">${esc(f.replace(/_/g," "))}</span>`).join(" ");
+  $("builderView").innerHTML =
+    `<div class="bhelp">Applied in order: <b>Hard Rejection Rules first</b> (any match → Non-ICP), then ICP/Non-ICP criteria and the qualification questions. Returns one of: ICP · Possible ICP · Needs Review · Non-ICP. Editing here changes classification immediately.</div>` +
+    `<label class="bf"><span class="bf-l">ICP Description — who we want to target</span><textarea id="icpDesc" rows="4">${esc(icp.icp_description || "")}</textarea></label>` +
+    `<label class="bf" style="margin-top:12px"><span class="bf-l">Non-ICP Description — who we do NOT target</span><textarea id="nonIcpDesc" rows="4">${esc(icp.non_icp_description || "")}</textarea></label>` +
+    `<div class="card" style="margin-top:14px">${icpListBlock("Hard Rejection Rules", "If a company matches ANY of these, it is automatically Non-ICP.", "hard_rejection_rules", icp.hard_rejection_rules)}</div>` +
+    `<div class="card" style="margin-top:12px">${icpListBlock("Qualification Questions", "The AI answers these before deciding. Last one should be the final decision.", "qualification_questions", icp.qualification_questions)}</div>` +
+    `<div class="card" style="margin-top:12px"><div class="bf-l">ICP Output Fields <span class="muted">— returned per lead</span></div><div style="margin-top:8px">${outFields}</div></div>` +
+    `<div class="bsave"><button class="run" id="icpSave">Save ICP configuration</button><span class="muted" id="icpMsg"></span></div>`;
+  wireIcp();
+}
+
+function icpCollect(){
+  const icp = cfg.sections.icp || {};
+  icp.icp_description = $("icpDesc").value;
+  icp.non_icp_description = $("nonIcpDesc").value;
+  ["hard_rejection_rules", "qualification_questions"].forEach(key => {
+    const arr = [];
+    $("builderView").querySelectorAll(`.ilist[data-list="${key}"] [data-il="${key}"]`).forEach(el => {
+      if(el.value.trim()) arr.push(el.value);
+    });
+    icp[key] = arr;
+  });
+  cfg.sections.icp = icp;
+}
+
+function wireIcp(){
+  $("builderView").querySelectorAll("[data-add]").forEach(b =>
+    b.onclick = () => { icpCollect(); const k = b.dataset.add; cfg.sections.icp[k] = (cfg.sections.icp[k] || []).concat([""]); renderIcp(); });
+  $("builderView").querySelectorAll("[data-rm]").forEach(a =>
+    a.onclick = () => { icpCollect(); const [k, i] = a.dataset.rm.split(":"); cfg.sections.icp[k].splice(parseInt(i, 10), 1); renderIcp(); });
+  $("icpSave").onclick = () => { icpCollect(); saveConfig("icpMsg"); };
+}
+
+// ============================ (legacy) WORKSPACE BUILDER ============================
+// Hidden — kept only so older code paths don't break. Not in the navigation.
 
 const builder = { tab: "strategy", sections: null, vars: [] };
 
@@ -1188,8 +1307,8 @@ function renderFormat(profile, fmt, sets, idByName){
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Client profile` +
     (profile.editable ? `<span class="vacts" style="margin-left:auto"><span class="vact" id="wsDelete">delete workspace</span></span>` : "") + `</div>`;
   h += `<div class="card" style="display:flex;align-items:center;gap:14px;justify-content:space-between">` +
-    `<div class="v" style="color:var(--muted);line-height:1.5">Client profile is managed in <b>Workspace Builder → Client Strategy</b>. This page only manages variables.</div>` +
-    (profile.editable ? `<button class="gbtn" id="goBuilderBtn" style="flex:none">Open Workspace Builder →</button>` : "") +
+    `<div class="v" style="color:var(--muted);line-height:1.5">Client profile is managed in <b>Client Profile</b>, and ICP rules in <b>ICP / Non-ICP</b>. This page only manages variables.</div>` +
+    (profile.editable ? `<button class="gbtn" id="goClientBtn" style="flex:none">Open Client Profile →</button>` : "") +
     `</div>`;
   h += `<div class="fv-h" style="display:flex;align-items:center;gap:8px">Variables <span class="muted" style="margin-left:6px">— what we generate & how to write them</span>` +
     (profile.editable
@@ -1223,7 +1342,7 @@ function renderFormat(profile, fmt, sets, idByName){
   $("fSet").onchange = e => { state.variableSet = e.target.value; state.client = e.target.value.split("_")[0]; loadEnrichments(); loadFormat(); };
   if($("wsSaveProfile")) $("wsSaveProfile").onclick = saveWorkspaceProfile;
   if($("wsDelete")) $("wsDelete").onclick = deleteWorkspace;
-  if($("goBuilderBtn")) $("goBuilderBtn").onclick = loadBuilder;
+  if($("goClientBtn")) $("goClientBtn").onclick = loadClientProfile;
   $("addVarBtn").onclick = () => { resetBuilder(); $("builder").hidden = false; };
   if($("dlJsonBtn")) $("dlJsonBtn").onclick = downloadJson;
   if($("jsonBtn")) $("jsonBtn").onclick = () => { const p = $("jsonPanel"); p.hidden = !p.hidden; };
@@ -1490,7 +1609,8 @@ async function setWorkspace(key, name){
     $("viewTitle").textContent = "No list selected";
     $("viewSub").textContent = "Pick a list, or import one";
   } else if(state.view === "format") loadFormat();
-  else if(state.view === "builder"){ builder.tab = builder.tab || "strategy"; loadBuilder(); }
+  else if(state.view === "client") loadClientProfile();
+  else if(state.view === "icp") loadIcp();
   else if(state.view === "database") loadDatabase();
   else if(state.view === "rules") loadRules();
   else if(state.view === "settings") loadSettings();
@@ -1730,7 +1850,8 @@ function init(){
   };
   $("createBtn").onclick = createList;
   $("enrichBtn").onclick = $("varsBtn").onclick = () => { showView("table"); $("enrichPanel").hidden = !$("enrichPanel").hidden; $("importPanel").hidden = true; };
-  $("builderBtn").onclick = loadBuilder;
+  $("clientProfileBtn").onclick = loadClientProfile;
+  $("icpBtn").onclick = loadIcp;
   $("formatBtn").onclick = loadFormat;
   $("rulesBtn").onclick = loadRules;
   $("databaseBtn").onclick = loadDatabase;

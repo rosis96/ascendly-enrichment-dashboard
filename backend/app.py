@@ -66,26 +66,20 @@ def _lead_safe(ld):
     return reoon.bucket(ld.verify)[0] == "valid"
 
 
-# Source of truth = Workspace Builder -> Client Strategy. Map its fields onto the
-# profile keys the engine prompt reads (icp / non_icp / icp_summary drive the ICP
-# decision; the rest describe the client). Order: profile_key <- strategy_key.
-_STRATEGY_PROFILE_MAP = [
-    ("service_brief", "business_overview"),
-    ("business_overview", "business_overview"),
-    ("main_offer", "offers"),
-    ("what_we_are_pitching", "offers"),
-    ("target_outcome", "objectives"),
-    ("icp", "icp"),
-    ("icp_summary", "icp"),
-    ("non_icp", "non_icp"),
-    ("positioning", "positioning"),
-    ("buyer_personas", "buyer_personas"),
-    ("competitors", "competitors"),
+# Source of truth = the workspace's Client Profile section. Map its fields onto the
+# engine writer's profile keys. ICP is NOT set here — the dedicated ICP engine owns
+# the decision and the writer runs with skip_icp once ICP has decided.
+_CLIENTPROFILE_MAP = [
+    ("service_brief", "what_client_does"),
+    ("business_overview", "what_client_does"),
+    ("main_offer", "main_offer"),
+    ("what_we_are_pitching", "what_we_pitch"),
+    ("target_outcome", "target_outcome"),
+    ("buyer_personas", "buyer_persona"),
     ("deal_size", "deal_size"),
     ("geo", "geo"),
-    ("constraints", "constraints"),
-    ("permanent_instructions", "instructions"),
     ("notes", "notes"),
+    ("permanent_instructions", "permanent_instructions"),
 ]
 
 
@@ -94,58 +88,64 @@ def _builder_sections(s, key):
     return (row.sections if row and isinstance(row.sections, dict) else {}) or {}
 
 
-def _strategy_nonempty(strat):
-    return isinstance(strat, dict) and any(str(strat.get(k) or "").strip() for k in strat)
+def _section_nonempty(sec):
+    return isinstance(sec, dict) and any(str(sec.get(k) or "").strip() for k in sec)
 
 
-def _knowledge_context(sections, cap=2500):
-    """Light-touch Knowledge injection: concatenate Builder knowledge items into a
-    bounded context block (priority order: after Strategy, before website)."""
-    parts = []
-    for it in (sections.get("knowledge") or []):
-        if not isinstance(it, dict):
-            continue
-        label = (it.get("label") or it.get("kind") or "").strip()
-        body = (it.get("content") or it.get("url") or "").strip()
-        if body:
-            parts.append(f"{label}: {body}" if label else body)
-    return "\n".join(parts)[:cap]
-
-
-def _strategy_to_profile(strat, sections, ws_name, prev_profile):
-    """Build the engine client_profile from the Builder Client Strategy. This is
-    now the SINGLE source of truth for client/ICP context — the old Format profile
-    content is intentionally not used (it's preserved in the DB, just not read)."""
+def _clientprofile_to_profile(cp, ws_name, prev_profile):
+    """Build the engine writer profile from the Client Profile section."""
     prof = {}
-    for pkey, skey in _STRATEGY_PROFILE_MAP:
-        v = strat.get(skey)
+    for pkey, skey in _CLIENTPROFILE_MAP:
+        v = cp.get(skey)
         if isinstance(v, (list, dict)):
             v = json.dumps(v, ensure_ascii=False)
         if v and str(v).strip():
             prof[pkey] = v
-    # preserve only operational toggles (campaign mode), not client-description content
     if isinstance(prev_profile, dict) and prev_profile.get("skip_icp"):
         prof["skip_icp"] = prev_profile["skip_icp"]
-    kb = _knowledge_context(sections)
-    if kb:
-        prof["knowledge_base"] = kb
     prof.setdefault("client_name", ws_name)
     return prof
 
 
+def _icp_config_for(s, key):
+    """The workspace's ICP/Non-ICP configuration, or None if not meaningfully set.
+    When present it is the SINGLE source of truth for ICP classification."""
+    sections = _builder_sections(s, key)
+    icp = sections.get("icp") or {}
+    has_logic = bool((icp.get("icp_description") or "").strip()
+                     or (icp.get("non_icp_description") or "").strip()
+                     or [r for r in (icp.get("hard_rejection_rules") or []) if str(r).strip()])
+    if not has_logic:
+        return None
+    cp = sections.get("client_profile") or {}
+    icp = dict(icp)
+    icp["_client_profile"] = cp
+    return icp
+
+
 def _profile_for(s, key, base):
-    """Client profile for enrichment / ICP. SOURCE OF TRUTH = Workspace Builder ->
-    Client Strategy. Falls back to the legacy Format/workspace profile only when
-    the Builder strategy hasn't been filled yet, so unconfigured workspaces keep
-    working. Old Format profile data is never deleted — just not used once Strategy
-    exists."""
+    """Writer client profile. SOURCE OF TRUTH = the Client Profile section. Falls
+    back to legacy strategy/profile only when Client Profile isn't filled yet, so
+    unconfigured workspaces keep working. Old data is never deleted."""
     ws = s.query(Workspace).filter_by(slug=key).first()
     sections = _builder_sections(s, key)
-    strat = sections.get("strategy") or {}
-    if _strategy_nonempty(strat):
+    cp = sections.get("client_profile") or {}
+    if _section_nonempty(cp):
         prev = dict(ws.profile or {}) if ws else {}
-        return _strategy_to_profile(strat, sections, (ws.name if ws else key), prev)
-    # --- legacy fallback (Builder strategy not configured yet) ---
+        return _clientprofile_to_profile(cp, (ws.name if ws else key), prev)
+    # legacy fallbacks (older 'strategy' config, then the original profile)
+    strat = sections.get("strategy") or {}
+    if _section_nonempty(strat):
+        prof = {}
+        for pkey, skey in [("service_brief", "business_overview"), ("main_offer", "offers"),
+                           ("what_we_are_pitching", "positioning"), ("target_outcome", "objectives"),
+                           ("buyer_personas", "buyer_personas"), ("deal_size", "deal_size"),
+                           ("geo", "geo"), ("permanent_instructions", "instructions")]:
+            v = strat.get(skey)
+            if v:
+                prof[pkey] = v if isinstance(v, str) else json.dumps(v)
+        prof.setdefault("client_name", ws.name if ws else key)
+        return prof
     if ws:
         prof = dict(ws.profile or {})
         prof.setdefault("client_name", ws.name)
@@ -459,7 +459,44 @@ def _process_concurrent(job_id, target_ids, worker_fn, workers):
         CANCEL.discard(job_id)
 
 
-def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=None):
+ICP_MAX_PAGES = int(os.getenv("ICP_MAX_PAGES", "1"))
+
+
+def _run_icp_gate(s, ld, icp_cfg):
+    """The dedicated ICP step. Scrapes the homepage, classifies via the workspace's
+    ICP config (hard rules first), stores the structured fields + the 3 indexed
+    columns, and routes by tier. Returns (proceed, inc, fields):
+      proceed=True  -> ICP / Possible ICP: continue to enrichment
+      proceed=False -> Non-ICP (reject) / Needs Review (queue): already stored."""
+    cp = icp_cfg.get("_client_profile") or {}
+    content = ea.scrape_text(ld.website or "", max_pages=ICP_MAX_PAGES)
+    fields, cost = ea.classify_icp(cp, icp_cfg, content)
+    decision = fields.get("final_decision") or "Needs Review"
+    ld.icp_decision = decision
+    try:
+        ld.icp_score = int(float(fields.get("fit_score") or 0))
+    except Exception:
+        ld.icp_score = 0
+    try:
+        ld.icp_confidence = int(float(fields.get("confidence") or 0))
+    except Exception:
+        ld.icp_confidence = 0
+    res = dict(ld.result or {})
+    res["_icp"] = fields
+    res["ICPReview"] = "ICP" if decision in ("ICP", "Possible ICP") else "Non-ICP"
+    res["ICP_reason"] = (fields.get("primary_icp_reason") or fields.get("primary_reject_reason")
+                         or fields.get("summary") or "")
+    ld.result = res
+    if decision in ("ICP", "Possible ICP"):
+        s.commit()
+        return True, {"cost": cost}, fields
+    ld.status = "review" if decision == "Needs Review" else "skipped"
+    s.commit()
+    inc = {"cost": cost, ("review" if decision == "Needs Review" else "nonicp"): 1}
+    return False, inc, fields
+
+
+def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=None, icp_cfg=None):
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -467,14 +504,28 @@ def _enrich_one(lead_id, base, enrichments, custom_specs, profile, variable_set=
             return None
         ld.status = "running"
         s.commit()
+        # --- ICP gate (single source of truth) — only when configured ---
+        icp_fields = None
+        if icp_cfg:
+            proceed, inc0, icp_fields = _run_icp_gate(s, ld, icp_cfg)
+            if not proceed:
+                return inc0
+        # Writer runs WITHOUT its own ICP gating when the ICP engine already decided.
+        writer_profile = dict(profile or {})
+        if icp_cfg:
+            writer_profile["skip_icp"] = True
         extra_rules = _rules_list(s, variable_set) if variable_set else []
-        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
+        res, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, writer_profile, extra_rules)
         if res.get("_status") == "error" or not res.get("ICPReview"):
-            # website unreachable / unreadable -> no copy, just mark it
-            ld.result = {"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]}
+            keep = {"_icp": icp_fields} if icp_fields else {}
+            keep.update({"_status": "error", "_error": str(res.get("_error", "No website content"))[:200]})
+            ld.result = keep
             ld.status = "error"
             s.commit()
             return {"error": 1, "cost": cost}
+        if icp_fields:                       # re-attach ICP fields onto the writer result
+            res["_icp"] = icp_fields
+            res["ICPReview"] = "ICP"
         ld.result = res
         ld.status = "skipped" if res.get("ICPReview") == "Non-ICP" else "done"
         s.commit()
@@ -506,7 +557,7 @@ def _verify_one(lead_id, mode):
         s.close()
 
 
-def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
+def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None, icp_cfg=None):
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -527,15 +578,31 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             if not ld.result:
                 ld.status = "running"
                 s.commit()
+                # --- ICP gate (single source of truth) — only when configured ---
+                icp_fields = None
+                if icp_cfg:
+                    proceed, inc0, icp_fields = _run_icp_gate(s, ld, icp_cfg)
+                    for k, v in inc0.items():
+                        inc[k] = inc.get(k, 0) + v
+                    if not proceed:
+                        return inc
+                writer_profile = dict(profile or {})
+                if icp_cfg:
+                    writer_profile["skip_icp"] = True
                 extra_rules = _rules_list(s, variable_set) if variable_set else []
-                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
-                inc["cost"] = cost
+                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, writer_profile, extra_rules)
+                inc["cost"] = inc.get("cost", 0) + cost
                 if r.get("_status") == "error" or not r.get("ICPReview"):
-                    ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
+                    keep = {"_icp": icp_fields} if icp_fields else {}
+                    keep.update({"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]})
+                    ld.result = keep
                     ld.status = "error"
                     s.commit()
                     inc["error"] = 1
                 else:
+                    if icp_fields:
+                        r["_icp"] = icp_fields
+                        r["ICPReview"] = "ICP"
                     ld.result = r
                     ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
                     s.commit()
@@ -559,12 +626,14 @@ def _run_job(job_id, target_ids, workers=None):
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
+        icp_cfg = _icp_config_for(s, job.variable_set)
         enrichments = job.enrichments
     finally:
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_enrich_one, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile, variable_set=vset),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset,
+                                icp_cfg=icp_cfg),
                         _clamp_workers(workers, ENRICH_WORKERS))
 
 
@@ -758,12 +827,14 @@ def _run_pipeline_job(job_id, target_ids, mode, workers=None):
         base = _base_of(s, job.variable_set)
         custom_specs = _custom_specs(s, job.variable_set)
         profile = _profile_for(s, job.variable_set, base)
+        icp_cfg = _icp_config_for(s, job.variable_set)
         enrichments = job.enrichments
     finally:
         s.close()
     _process_concurrent(job_id, target_ids,
                         partial(_pipeline_one, mode=mode, base=base, enrichments=enrichments,
-                                custom_specs=custom_specs, profile=profile, variable_set=vset),
+                                custom_specs=custom_specs, profile=profile, variable_set=vset,
+                                icp_cfg=icp_cfg),
                         _clamp_workers(workers, ENRICH_WORKERS))
 
 
@@ -1638,17 +1709,58 @@ def save_rules(variable_set: str, body: RulesBody):
 # Workspace Builder's persistence layer and nothing here changes how leads are
 # processed today.
 
+DEFAULT_QUALIFICATION_QUESTIONS = [
+    "What does this company sell?",
+    "Who do they sell to?",
+    "Is this B2B or B2C?",
+    "Is the likely deal size high enough?",
+    "Can buyers be identified and reached through outbound?",
+    "Is there a large enough TAM for outbound?",
+    "Does the company need more pipeline, better follow-up, or revenue recovery?",
+    "Can we realistically provide results for this company?",
+    "Are there any hard rejection signals?",
+    "Final decision: ICP / Possible ICP / Needs Review / Non-ICP",
+]
+DEFAULT_HARD_REJECTION_RULES = [
+    "Low-ticket SaaS with public pricing under $5k/month",
+    "Local-only business",
+    "Consumer business (B2C)",
+    "Ecommerce",
+    "Tiny TAM",
+    "Mostly tender / government / distributor / channel sales",
+    "No clear buyer universe",
+    "Cannot identify at least 1,000+ realistic target accounts/buyers",
+    "Cannot realistically deliver pipeline in 90-120 days",
+]
+# The structured fields the ICP engine returns for every lead (Vision: explainable
+# + filterable). Order = display order.
+ICP_OUTPUT_FIELDS = [
+    "final_decision", "fit_score", "confidence", "business_model", "buyer_reachability",
+    "serviceability", "tam_estimate", "revenue_model", "primary_icp_reason",
+    "primary_reject_reason", "summary",
+]
+
 _CONFIG_DEFAULTS = {
-    "strategy": {
-        "business_overview": "", "offers": "", "positioning": "", "objectives": "",
-        "icp": "", "non_icp": "", "buyer_personas": "", "competitors": "",
-        "deal_size": "", "geo": "", "constraints": "", "notes": "", "instructions": "",
+    # Section 1 — Client Profile (explains the client + offer only)
+    "client_profile": {
+        "what_client_does": "", "main_offer": "", "what_we_pitch": "",
+        "target_outcome": "", "buyer_persona": "", "deal_size": "",
+        "geo": "", "notes": "", "permanent_instructions": "",
     },
-    "knowledge": [],   # [{id,kind,label,content,url,tags,notes}]
-    "analysis": [],    # [{id,name,prompt,output_schema,score,confidence,run_if,depends_on}]
-    "decision": [],    # [{id,label,when,outcome,priority}]
-    "assets": [],      # [{id,name,prompt,format,min_words,max_words,run_if}]
-    "export": {"fields": [], "notes": ""},  # {fields:[{source,column}], notes}
+    # Section 2 — ICP / Non-ICP (the classification logic; single source of truth)
+    "icp": {
+        "icp_description": "",
+        "non_icp_description": "",
+        "hard_rejection_rules": list(DEFAULT_HARD_REJECTION_RULES),
+        "qualification_questions": list(DEFAULT_QUALIFICATION_QUESTIONS),
+    },
+    # --- legacy/hidden sections kept so older saved configs round-trip safely ---
+    "strategy": {},
+    "knowledge": [],
+    "analysis": [],
+    "decision": [],
+    "assets": [],
+    "export": {"fields": [], "notes": ""},
 }
 
 
@@ -1668,26 +1780,42 @@ def _config_with_defaults(sections):
     return out
 
 
-def _prefill_strategy_from_profile(s, variable_set, sections):
-    """If the Strategy section is still empty, seed a couple of fields from the
-    existing client profile so the builder isn't blank on first open. Read-only
-    seed — never overwrites the stored profile, never auto-saved."""
-    strat = sections.get("strategy") or {}
-    if any((strat.get(k) or "").strip() for k in strat):
-        return sections
+def _prefill_config_from_profile(s, variable_set, sections):
+    """Seed the new Client Profile + ICP sections from any existing client profile
+    or older 'strategy' config so the page isn't blank on first open. Read-only
+    seed — never overwrites stored data, never auto-saved."""
     ws = s.query(Workspace).filter_by(slug=variable_set).first()
     prof = (ws.profile if ws else None) or {}
-    if isinstance(prof, dict) and prof:
-        mapping = {
-            "business_overview": prof.get("service_brief") or prof.get("business_overview") or prof.get("overview"),
-            "offers": prof.get("main_offer") or prof.get("what_we_are_pitching") or prof.get("offers"),
-            "objectives": prof.get("target_outcome") or prof.get("objectives"),
-            "icp": prof.get("icp_summary") or prof.get("icp"),
+    strat = sections.get("strategy") or {}
+
+    cp = sections.get("client_profile") or {}
+    if not any((cp.get(k) or "").strip() for k in cp):
+        cp_map = {
+            "what_client_does": prof.get("service_brief") or prof.get("business_overview") or strat.get("business_overview"),
+            "main_offer": prof.get("main_offer") or strat.get("offers"),
+            "what_we_pitch": prof.get("what_we_are_pitching") or strat.get("positioning"),
+            "target_outcome": prof.get("target_outcome") or strat.get("objectives"),
+            "buyer_persona": prof.get("buyer_personas") or strat.get("buyer_personas"),
+            "deal_size": prof.get("deal_size") or strat.get("deal_size"),
+            "geo": prof.get("geo") or strat.get("geo"),
+            "notes": prof.get("notes") or strat.get("notes"),
+            "permanent_instructions": prof.get("permanent_instructions") or strat.get("instructions"),
         }
-        for k, v in mapping.items():
-            if v and not (strat.get(k) or "").strip():
-                strat[k] = v if isinstance(v, str) else json.dumps(v)
-        sections["strategy"] = strat
+        for k, v in cp_map.items():
+            if v and not (cp.get(k) or "").strip():
+                cp[k] = v if isinstance(v, str) else json.dumps(v)
+        sections["client_profile"] = cp
+
+    icp = sections.get("icp") or {}
+    if not (icp.get("icp_description") or "").strip():
+        seed = prof.get("icp_summary") or prof.get("icp") or strat.get("icp")
+        if seed:
+            icp["icp_description"] = seed if isinstance(seed, str) else json.dumps(seed)
+    if not (icp.get("non_icp_description") or "").strip():
+        seed = prof.get("non_icp") or strat.get("non_icp")
+        if seed:
+            icp["non_icp_description"] = seed if isinstance(seed, str) else json.dumps(seed)
+    sections["icp"] = icp
     return sections
 
 
@@ -1697,9 +1825,10 @@ def get_workspace_config(variable_set: str):
     try:
         row = s.query(WorkspaceConfig).filter_by(variable_set=variable_set).first()
         sections = _config_with_defaults(row.sections if row else {})
-        sections = _prefill_strategy_from_profile(s, variable_set, sections)
+        sections = _prefill_config_from_profile(s, variable_set, sections)
         return {"variable_set": variable_set, "sections": sections,
-                "saved": bool(row)}
+                "saved": bool(row),
+                "icp_output_fields": ICP_OUTPUT_FIELDS}
     finally:
         s.close()
 
