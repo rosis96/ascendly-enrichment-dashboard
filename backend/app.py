@@ -1404,16 +1404,32 @@ async def upload(list_id: int, file: UploadFile = File(...), mapping: Optional[s
 
 
 def _list_view_filter(q, view):
-    """Server-side filter so the chips work across the WHOLE list, not just a page."""
+    """Server-side filter so the chips/counts cover the WHOLE list, not just a page.
+    Categories are disjoint by `status` (done | skipped | error | not-run)."""
     if view == "notrun":
         return q.filter(or_(Lead.status == None, Lead.status.in_(["", "pending", "running"])))  # noqa: E711
     if view == "enriched":
         return q.filter(Lead.status == "done")
     if view == "nonicp":
-        return q.filter(Lead.icp_decision == "Non-ICP")
+        return q.filter(Lead.status == "skipped")
+    if view == "no_website":
+        return q.filter(Lead.status == "error")
     if view == "title_rejected":
         return q.filter(Lead.title_status == "rejected")
     return q
+
+
+def _list_counts(s, list_id):
+    """Live full-list counts for the grid chips (cheap COUNT queries)."""
+    def c(view):
+        return _list_view_filter(
+            s.query(func.count(Lead.id)).filter_by(list_id=list_id), view).scalar() or 0
+    return {
+        "all": s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0,
+        "enriched": c("enriched"), "nonicp": c("nonicp"),
+        "no_website": c("no_website"), "title_rejected": c("title_rejected"),
+        "notrun": c("notrun"),
+    }
 
 
 @app.get("/api/lists/{list_id}")
@@ -1439,7 +1455,8 @@ def get_list(list_id: int, page: int = 1, page_size: int = LIST_LEAD_CAP, view: 
             "list": {"id": l.id, "name": l.name, "variable_set": l.variable_set,
                      "count": total, "shown": len(leads), "truncated": total > len(leads),
                      "view": view, "view_total": view_total,
-                     "page": page, "page_size": page_size, "pages": pages},
+                     "page": page, "page_size": page_size, "pages": pages,
+                     "counts": _list_counts(s, list_id)},
             "leads": [{
                 "id": ld.id, "first_name": ld.first_name, "last_name": ld.last_name,
                 "title": ld.title, "company": ld.company, "website": ld.website,
@@ -2350,6 +2367,11 @@ def _db_lead(ld):
         "employees": ld.employees, "country": ld.country or "", "state": ld.state or "",
         "seniority": ld.seniority or "", "email_status": ld.email_status or "",
         "title_status": ld.title_status or "",
+        # enrichment results live on the SAME rows the lists enrich, so the Database
+        # reflects enrichment live once these are surfaced.
+        "icp_decision": ld.icp_decision or "", "icp_score": ld.icp_score,
+        "status": ld.status or "", "enriched": bool(ld.result),
+        "result": ld.result or {},
         "data": ld.data or {},   # full original row, for all-columns view + detail drawer
     }
 
@@ -2412,9 +2434,16 @@ def database_export(slug: str, body: DBFilters):
             for k in (ld.data or {}).keys():
                 if k not in raw_cols and k.lower() not in _STD_RAW_SKIP:
                     raw_cols.append(k)
+        # enrichment output columns for this workspace, so the DB export includes copy
+        hidden = _hidden_names(s0, slug)
+        custom_names = [c.get("name") for c in _custom_specs(s0, slug)]
+        cset = set(custom_names)
+        out_keys = [k for k in ea.output_keys_for(_base_of(s0, slug))
+                    if k not in hidden and k not in cset] + custom_names
     finally:
         s0.close()
-    header = [lbl for lbl, _ in _STD_EXPORT] + raw_cols + ["Title Check", "Safe to send"]
+    header = ([lbl for lbl, _ in _STD_EXPORT] + raw_cols
+              + ["Title Check", "Safe to send", "ICP Decision", "ICP Score"] + out_keys)
 
     def gen():
         buf = io.StringIO()
@@ -2426,7 +2455,9 @@ def database_export(slug: str, body: DBFilters):
             for ld in base_query(s).yield_per(1000):
                 row = _std_export_row(ld)
                 row += [(ld.data or {}).get(c, "") for c in raw_cols]
-                row += [ld.title_status or "", (ld.verify or {}).get("is_safe_to_send", "")]
+                row += [ld.title_status or "", (ld.verify or {}).get("is_safe_to_send", ""),
+                        ld.icp_decision or "", ld.icp_score if ld.icp_score is not None else ""]
+                row += [(ld.result or {}).get(k, "") for k in out_keys]
                 w.writerow(row)
                 if buf.tell() > 64000:
                     yield buf.getvalue(); buf.seek(0); buf.truncate(0)

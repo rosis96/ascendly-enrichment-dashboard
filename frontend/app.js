@@ -193,90 +193,47 @@ function renderGrid(d){
   $("empty").hidden = leads.length > 0;
   const grid = $("grid"); grid.hidden = leads.length === 0;
 
-  // filter bar with counts
-  const counts = { all: leads.length, enriched: 0, nonicp: 0, rejected: 0, notrun: 0, error: 0, tpass: 0, trej: 0,
-    espMicrosoft: 0, espGoogle: 0, espOther: 0, espUnknown: 0 };
-  leads.forEach(l => {
-    counts[leadCat(l)]++;
-    if(l.title_status === "pass") counts.tpass++;
-    else if(l.title_status === "rejected") counts.trej++;
-    if(l.esp) counts["esp" + l.esp] = (counts["esp" + l.esp] || 0) + 1;
-  });
   const gt = $("gridtools");
   gt.hidden = leads.length === 0;
+  const li = d.list || {};
+  const counts = li.counts || {};
+  // Category chips show LIVE full-list counts and filter the WHOLE list server-side.
   const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
-    ["rejected", "Title-rejected"], ["error", "No website"], ["notrun", "Not run"]];
-  // show title-check chips only once a title check has been run
-  if(counts.tpass || counts.trej){
-    chips.push(["tpass", "Title ✓"], ["trej", "Title ✗"]);
-  }
-  // ESP chips, present buckets only
-  [["espMicrosoft", "Microsoft"], ["espGoogle", "Google"], ["espOther", "ESP other"], ["espUnknown", "ESP ?"]]
-    .forEach(([k, label]) => { if(counts[k]) chips.push([k, label]); });
+    ["title_rejected", "Title-rejected"], ["no_website", "No website"], ["notrun", "Not run"]];
+  const curView = state.listView || "all";
   const chipHtml = chips.map(([k, label]) =>
-    `<span class="fchip${state.filter === k ? " on" : ""}" data-f="${k}">${label} <b>${counts[k] || 0}</b></span>`).join("");
+    `<span class="fchip${curView === k ? " on" : ""}" data-v="${k}">${label} <b>${(counts[k] || 0).toLocaleString()}</b></span>`).join("");
   const n = state.selectedLeads.size;
-  const industries = [...new Set(leads.map(l => l.industry).filter(Boolean))].sort();
-  let pre = "";
-  if(industries.length){
-    pre = `<select id="indFilter" class="indsel"><option value="">All industries</option>` +
-      industries.map(i => `<option ${state.industryFilter === i ? "selected" : ""}>${esc(i)}</option>`).join("") +
-      `</select><span class="gtact" data-act="split">Split by industry</span>`;
-  }
-  const notrunIds = leads.filter(l => leadCat(l) === "notrun").map(l => l.id);
-  const selNr = notrunIds.length
-    ? `<span class="gtact" data-act="selnr">Select not-run ${notrunIds.length}</span>` : "";
-  const tpassIds = leads.filter(l => l.title_status === "pass").map(l => l.id);
-  const selTp = tpassIds.length
-    ? `<span class="gtact" data-act="seltp">Select title ✓ ${tpassIds.length}</span>` : "";
-  const acts = pre + selTp + selNr + (n > 0
+  const pageIds = leads.map(l => l.id);
+  const selPage = pageIds.length
+    ? `<span class="gtact" data-act="selpage">Select page (${pageIds.length})</span>` : "";
+  const acts = `<span class="gtact" data-act="split">Split by industry</span>` + selPage + (n > 0
     ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
     : `<span class="gtact" data-act="clrall">Clear results</span>`);
-  // Pagination + server-side view (so the whole 50k+ list is browsable, not just a page)
-  const li = d.list || {};
-  const viewOpts = [["all", "All"], ["notrun", "Not run"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"], ["title_rejected", "Title-rejected"]];
   const pager = `<div class="gridpager">` +
-    `<select id="listView">${viewOpts.map(([v, lbl]) => `<option value="${v}" ${state.listView === v ? "selected" : ""}>${lbl}</option>`).join("")}</select>` +
     `<button class="gbtn pgbtn" id="pgPrev" ${(li.page || 1) <= 1 ? "disabled" : ""}>‹ Prev</button>` +
     `<span class="pginfo">Page ${(li.page || 1).toLocaleString()} / ${(li.pages || 1).toLocaleString()} · ` +
-    `${(li.view_total || 0).toLocaleString()}${state.listView !== "all" ? " in view" : " leads"}` +
+    `${(li.view_total || 0).toLocaleString()}${curView !== "all" ? " in view" : " leads"}` +
     `${li.view_total !== li.count ? ` (of ${(li.count || 0).toLocaleString()})` : ""}</span>` +
     `<button class="gbtn pgbtn" id="pgNext" ${(li.page || 1) >= (li.pages || 1) ? "disabled" : ""}>Next ›</button></div>`;
   gt.innerHTML = pager + `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
   const goPage = p => { state.page = p; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh(); };
-  const lvSel = gt.querySelector("#listView");
-  if(lvSel) lvSel.onchange = () => { state.listView = lvSel.value; state.page = 1; state.filter = "all"; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh(); };
+  gt.querySelectorAll("[data-v]").forEach(c => c.onclick = () => {
+    state.listView = c.dataset.v; state.page = 1; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh();
+  });
   const pgP = gt.querySelector("#pgPrev"); if(pgP) pgP.onclick = () => { if((li.page || 1) > 1) goPage((li.page || 1) - 1); };
   const pgN = gt.querySelector("#pgNext"); if(pgN) pgN.onclick = () => { if((li.page || 1) < (li.pages || 1)) goPage((li.page || 1) + 1); };
-  gt.querySelectorAll("[data-f]").forEach(c => c.onclick = () => { state.filter = c.dataset.f; state.rowCap = ROW_CAP_STEP; renderGrid(d); });
-  const indSel = gt.querySelector("#indFilter");
-  if(indSel) indSel.onchange = () => { state.industryFilter = indSel.value; state.rowCap = ROW_CAP_STEP; renderGrid(d); };
   const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
-  wire("selnr", () => {
-    notrunIds.forEach(id => state.selectedLeads.add(id));
-    state.filter = "notrun";
-    renderGrid(d); updateScope();
-  });
-  wire("seltp", () => {
-    tpassIds.forEach(id => state.selectedLeads.add(id));
-    state.filter = "tpass"; state.rowCap = ROW_CAP_STEP;
-    renderGrid(d); updateScope();
-  });
+  wire("selpage", () => { pageIds.forEach(id => state.selectedLeads.add(id)); renderGrid(d); updateScope(); });
   wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));
   wire("exp", exportCsv);
   wire("clrall", () => clearResults([]));
 
-  // apply filter; in "all", surface enriched rows to the top
-  let view;
-  if(state.filter === "all") view = leads.slice();
-  else if(state.filter === "tpass") view = leads.filter(l => l.title_status === "pass");
-  else if(state.filter === "trej") view = leads.filter(l => l.title_status === "rejected");
-  else if(state.filter.startsWith("esp")) view = leads.filter(l => ("esp" + (l.esp || "")) === state.filter);
-  else view = leads.filter(l => leadCat(l) === state.filter);
-  if(state.industryFilter) view = view.filter(l => (l.industry || "") === state.industryFilter);
-  if(state.filter === "all"){
+  // Server already returned the right page for the active view — show it as-is.
+  let view = leads.slice();
+  if(curView === "all"){
     view.sort((a, b) => (leadCat(a) === "enriched" ? 0 : 1) - (leadCat(b) === "enriched" ? 0 : 1));
   }
   state.viewIds = view.map(l => l.id);
@@ -377,9 +334,10 @@ function updateScope(){
 function updateRunUI(){
   const t = state.view === "table";
   const running = state.running;
-  ["varsBtn", "classifyBtn", "runBtn", "verifyBtn", "pipelineBtn", "importBtn", "exportBtn", "titleBtn", "espBtn"].forEach(id => {
+  ["toolsMenu", "runBtn", "pipelineBtn"].forEach(id => {
     const e = $(id); if(e) e.style.display = (t && !running) ? "" : "none";
   });
+  const tp = $("toolsPop"); if(tp) tp.hidden = true;
   const sb = $("stopBtn"); if(sb) sb.style.display = (t && running) ? "" : "none";
   const sc = $("scope"); if(sc) sc.style.display = t ? "" : "none";
   // Bottom bar button: while a run is in progress it BECOMES the Stop button so a
@@ -671,7 +629,7 @@ function renderDatabase(){
   </div>`;
   h += `<div class="dbselnotice" id="dbSelNotice" hidden></div>`;
   h += `<div class="dbsend" id="dbSendPanel" hidden></div>`;
-  const fixedCols = ["Name", "Title", "Company", "Email", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
+  const fixedCols = ["Name", "Title", "Company", "Email", "ICP", "Industry", "ESP", "Employees", "Country", "Seniority", "Email status"];
   const dataCols = d.data_columns || [];
   const pageAllSel = (d.leads || []).length > 0 && (d.leads || []).every(l => db.selectAll || db.selected.has(l.id));
   h += `<div class="dbtablewrap"><table class="dbtable"><thead><tr><th class="cbx"><input type="checkbox" id="dbSelAll" ${pageAllSel ? "checked" : ""}></th>` +
@@ -683,6 +641,7 @@ function renderDatabase(){
     h += `<tr><td class="cbx"><input type="checkbox" class="dbcb" data-id="${l.id}" ${ck}></td>` +
       `<td><b class="dblink" data-id="${l.id}">${esc(l.first_name)} ${esc(l.last_name)}</b></td><td>${esc(l.title)}</td>` +
       `<td>${esc(l.company)}</td><td><span class="dblink" data-id="${l.id}">${esc(l.email)}</span></td>` +
+      `<td>${l.icp_decision ? `<span class="pill ${l.icp_decision === "Non-ICP" ? "p-gray" : "p-acc"}">${esc(l.icp_decision)}</span>` : (l.enriched ? `<span class="sk">—</span>` : `<span class="sk">·</span>`)}</td>` +
       `<td>${l.industry ? `<span class="pill p-gray">${esc(l.industry)}</span>` : `<span class="sk">—</span>`}</td>` +
       `<td>${espCell(l)}</td><td>${l.employees ?? ""}</td><td>${esc(l.country)}</td>` +
       `<td>${esc(l.seniority)}</td><td>${esc(l.email_status)}</td>` +
@@ -1900,6 +1859,13 @@ function init(){
   $("pipelineBtn").onclick = pipeline;
   $("exportBtn").onclick = $("exportNav").onclick = exportCsv;
   $("stopBtn").onclick = stop;
+  // Tools dropdown (declutters the top bar)
+  const toolsBtn = $("toolsBtn"), toolsPop = $("toolsPop");
+  if(toolsBtn && toolsPop){
+    toolsBtn.onclick = e => { e.stopPropagation(); toolsPop.hidden = !toolsPop.hidden; };
+    toolsPop.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { toolsPop.hidden = true; }));
+    document.addEventListener("click", e => { if(!e.target.closest("#toolsMenu")) toolsPop.hidden = true; });
+  }
   $("limitN").oninput = updateScope;
   const savedLimit = localStorage.getItem("defLimit"); if(savedLimit) $("limitN").value = savedLimit;
   showView("table");
