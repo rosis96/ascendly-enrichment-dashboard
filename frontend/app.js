@@ -198,8 +198,9 @@ function renderGrid(d){
   const li = d.list || {};
   const counts = li.counts || {};
   // Category chips show LIVE full-list counts and filter the WHOLE list server-side.
-  const chips = [["all", "All"], ["enriched", "Enriched"], ["nonicp", "Non-ICP"],
-    ["title_rejected", "Title-rejected"], ["no_website", "No website"], ["notrun", "Not run"]];
+  const chips = [["all", "All"], ["processed", "Processed"], ["enriched", "Enriched"],
+    ["nonicp", "Non-ICP"], ["no_website", "No website"], ["unsafe", "Unsafe"],
+    ["notrun", "Not run"], ["title_rejected", "Title-rejected"]];
   const curView = state.listView || "all";
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${curView === k ? " on" : ""}" data-v="${k}">${label} <b>${(counts[k] || 0).toLocaleString()}</b></span>`).join("");

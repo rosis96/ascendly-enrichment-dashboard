@@ -1403,17 +1403,33 @@ async def upload(list_id: int, file: UploadFile = File(...), mapping: Optional[s
         s.close()
 
 
+_SAFE_LABELS = ["safe", "valid"]                       # Reoon "deliverable" buckets
+_PROCESSED_STATUS = ["done", "skipped", "error"]       # went through enrichment
+
+
+def _not_processed():
+    return or_(Lead.status == None, Lead.status.in_(["", "pending", "running"]))  # noqa: E711
+
+
 def _list_view_filter(q, view):
     """Server-side filter so the chips/counts cover the WHOLE list, not just a page.
-    Categories are disjoint by `status` (done | skipped | error | not-run)."""
-    if view == "notrun":
-        return q.filter(or_(Lead.status == None, Lead.status.in_(["", "pending", "running"])))  # noqa: E711
+    Processed = enriched | Non-ICP | No website (went through enrichment).
+    Unsafe   = NOT processed, but email verified and NOT deliverable.
+    Not run  = NOT processed and never blocked by email (truly untouched / ready)."""
+    if view == "processed":
+        return q.filter(Lead.status.in_(_PROCESSED_STATUS))
     if view == "enriched":
         return q.filter(Lead.status == "done")
     if view == "nonicp":
         return q.filter(Lead.status == "skipped")
     if view == "no_website":
         return q.filter(Lead.status == "error")
+    if view == "unsafe":
+        return q.filter(_not_processed(), Lead.email_status != None, Lead.email_status != "",  # noqa: E711
+                        func.lower(Lead.email_status).notin_(_SAFE_LABELS))
+    if view == "notrun":
+        return q.filter(_not_processed(), or_(Lead.email_status == None, Lead.email_status == "",  # noqa: E711
+                        func.lower(Lead.email_status).in_(_SAFE_LABELS)))
     if view == "title_rejected":
         return q.filter(Lead.title_status == "rejected")
     return q
@@ -1426,9 +1442,9 @@ def _list_counts(s, list_id):
             s.query(func.count(Lead.id)).filter_by(list_id=list_id), view).scalar() or 0
     return {
         "all": s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0,
-        "enriched": c("enriched"), "nonicp": c("nonicp"),
-        "no_website": c("no_website"), "title_rejected": c("title_rejected"),
-        "notrun": c("notrun"),
+        "processed": c("processed"), "enriched": c("enriched"), "nonicp": c("nonicp"),
+        "no_website": c("no_website"), "unsafe": c("unsafe"), "notrun": c("notrun"),
+        "title_rejected": c("title_rejected"),
     }
 
 
