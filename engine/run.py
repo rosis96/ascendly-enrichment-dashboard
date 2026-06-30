@@ -5,6 +5,7 @@ import re
 import json
 import time
 import hashlib
+import threading
 import argparse
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
@@ -190,15 +191,37 @@ def discover_priority_links(home_url, max_pages):
 
 
 MAX_DOWNLOAD_BYTES = int(os.getenv("MAX_DOWNLOAD_BYTES", str(3 * 1024 * 1024)))  # 3 MB cap
+SCRAPE_TIMEOUT = int(os.getenv("SCRAPE_TIMEOUT", "8"))
+
+# --- Optional scrape add-ons (all OFF by default; current behaviour unchanged) ---
+# 1) Managed scraping provider: set SCRAPER_API_KEY (+ optional SCRAPER_PROVIDER:
+#    scraperapi | scrapingbee). Fetches go through the provider's proxy pool, so
+#    you can run many workers without the box's network causing empty scrapes.
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "").strip()
+SCRAPER_PROVIDER = os.getenv("SCRAPER_PROVIDER", "scraperapi").strip().lower()
+# 2) Scrape concurrency cap: throttle simultaneous fetches even when many enrichment
+#    workers run, so scrapes stay reliable. e.g. 15 workers + SCRAPE_MAX_CONCURRENCY=6.
+_SCRAPE_SEM_N = int(os.getenv("SCRAPE_MAX_CONCURRENCY", "0"))
+_SCRAPE_SEM = threading.Semaphore(_SCRAPE_SEM_N) if _SCRAPE_SEM_N > 0 else None
 
 
-def fetch_html(url):
-    # Stream and HARD-CAP the download size. Without this a single huge page (or a
-    # server that streams endlessly) loads fully into RAM via resp.text; with many
-    # concurrent workers a few of those at once can OOM the box. We read at most
-    # MAX_DOWNLOAD_BYTES and decode that, skipping obvious non-HTML responses.
+def _provider_url(url):
+    from urllib.parse import quote
+    enc = quote(url, safe="")
+    if SCRAPER_PROVIDER == "scrapingbee":
+        return f"https://app.scrapingbee.com/api/v1/?api_key={SCRAPER_API_KEY}&url={enc}&render_js=false"
+    # default: ScraperAPI-style
+    return f"https://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={enc}"
+
+
+def _fetch_html(url, timeout):
+    # Stream and HARD-CAP the download size so a single huge page can't OOM the box.
+    target, to = url, timeout
+    if SCRAPER_API_KEY:
+        target = _provider_url(url)
+        to = max(timeout, 40)            # providers (proxy + render) need longer
     try:
-        with requests.get(url, headers=BROWSER_HEADERS, timeout=8,
+        with requests.get(target, headers=BROWSER_HEADERS, timeout=to,
                           allow_redirects=True, stream=True) as resp:
             if resp.status_code >= 400:
                 return ""
@@ -221,6 +244,14 @@ def fetch_html(url):
     except Exception:
         pass
     return ""
+
+
+def fetch_html(url, timeout=None):
+    timeout = timeout or SCRAPE_TIMEOUT
+    if _SCRAPE_SEM:                       # cap concurrent scrapes for reliability
+        with _SCRAPE_SEM:
+            return _fetch_html(url, timeout)
+    return _fetch_html(url, timeout)
 
 
 def url_variants(url):
@@ -252,6 +283,11 @@ def scrape_url(url, use_cache=True):
         html = fetch_html(v)
         if html:
             break
+    # One retry with a longer timeout: under high worker counts a transient timeout
+    # returns empty content (-> weak/N/A copy). A second, patient try recovers many
+    # of those so quality holds at higher concurrency. (Skipped when a provider is on.)
+    if not html and not SCRAPER_API_KEY:
+        html = fetch_html(url_variants(url)[0], timeout=SCRAPE_TIMEOUT * 3)
 
     if html:
         try:
