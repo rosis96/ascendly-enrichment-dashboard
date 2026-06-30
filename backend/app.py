@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from db import SessionLocal, init_db
 from models import LeadList, Lead, Job, CustomVariable, HiddenVariable, Workspace, EnrichRule, ImportField, WorkspaceConfig
-from sqlalchemy import or_, func
+from sqlalchemy import or_, and_, func
 import engine_adapter as ea
 from integrations import reoon
 from integrations import esp as esp_detect
@@ -1411,13 +1411,19 @@ def _not_processed():
     return or_(Lead.status == None, Lead.status.in_(["", "pending", "running"]))  # noqa: E711
 
 
+def _unsafe_cond():
+    # NOT enriched, but the email WAS verified and is not deliverable.
+    return and_(_not_processed(), Lead.email_status != None, Lead.email_status != "",  # noqa: E711
+                func.lower(Lead.email_status).notin_(_SAFE_LABELS))
+
+
 def _list_view_filter(q, view):
     """Server-side filter so the chips/counts cover the WHOLE list, not just a page.
-    Processed = enriched | Non-ICP | No website (went through enrichment).
-    Unsafe   = NOT processed, but email verified and NOT deliverable.
-    Not run  = NOT processed and never blocked by email (truly untouched / ready)."""
+    Processed = went through verify/enrich = enriched | Non-ICP | No website | Unsafe.
+    Unsafe   = email verified but NOT deliverable (a subset of Processed).
+    Not run  = never went through the process (truly untouched / ready)."""
     if view == "processed":
-        return q.filter(Lead.status.in_(_PROCESSED_STATUS))
+        return q.filter(or_(Lead.status.in_(_PROCESSED_STATUS), _unsafe_cond()))
     if view == "enriched":
         return q.filter(Lead.status == "done")
     if view == "nonicp":
@@ -1425,8 +1431,7 @@ def _list_view_filter(q, view):
     if view == "no_website":
         return q.filter(Lead.status == "error")
     if view == "unsafe":
-        return q.filter(_not_processed(), Lead.email_status != None, Lead.email_status != "",  # noqa: E711
-                        func.lower(Lead.email_status).notin_(_SAFE_LABELS))
+        return q.filter(_unsafe_cond())
     if view == "notrun":
         return q.filter(_not_processed(), or_(Lead.email_status == None, Lead.email_status == "",  # noqa: E711
                         func.lower(Lead.email_status).in_(_SAFE_LABELS)))
@@ -1440,11 +1445,12 @@ def _list_counts(s, list_id):
     def c(view):
         return _list_view_filter(
             s.query(func.count(Lead.id)).filter_by(list_id=list_id), view).scalar() or 0
+    enriched, nonicp, no_web, unsafe = c("enriched"), c("nonicp"), c("no_website"), c("unsafe")
     return {
         "all": s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0,
-        "processed": c("processed"), "enriched": c("enriched"), "nonicp": c("nonicp"),
-        "no_website": c("no_website"), "unsafe": c("unsafe"), "notrun": c("notrun"),
-        "title_rejected": c("title_rejected"),
+        "processed": enriched + nonicp + no_web + unsafe,   # includes Unsafe
+        "enriched": enriched, "nonicp": nonicp, "no_website": no_web,
+        "unsafe": unsafe, "notrun": c("notrun"), "title_rejected": c("title_rejected"),
     }
 
 
