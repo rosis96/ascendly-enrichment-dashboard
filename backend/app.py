@@ -522,45 +522,45 @@ def _verify_one(lead_id, mode):
 
 
 def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
+    """ICP-FIRST pipeline: decide ICP + write copy (OpenAI) FIRST, and only spend a
+    Reoon credit verifying the email if the lead is ICP. Non-ICP leads never hit
+    Reoon. This is the credit-saving order the user wants."""
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
         if not ld:
             return None
         inc = {}
-        if not ld.verify:
+        # 1) Enrich (scrape -> ICP decision -> copy). No Reoon spent here.
+        if not ld.result:
+            ld.status = "running"
+            s.commit()
+            extra_rules = _rules_list(s, variable_set) if variable_set else []
+            r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
+            inc["cost"] = inc.get("cost", 0) + cost
+            if r.get("_status") == "error" or not r.get("ICPReview"):
+                ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
+                ld.status = "error"
+                s.commit()
+                return {**inc, "error": 1}
+            ld.result = r
+            ld.icp_decision = r.get("ICPReview") or ""
+            ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
+            s.commit()
+            if r.get("ICPReview") == "Non-ICP":
+                return {**inc, "nonicp": 1}        # 2) Non-ICP -> STOP, no verification
+            inc["enriched"] = 1
+        # 3) ICP lead -> verify the email (Reoon), only if not already verified.
+        is_icp = (ld.icp_decision or (ld.result or {}).get("ICPReview")) != "Non-ICP"
+        if is_icp and not ld.verify:
             res = reoon.verify_one(ld.email, mode)
-            _, label = reoon.bucket(res)
+            bkt, label = reoon.bucket(res)
             ld.verify = res
             ld.email_status = label
             s.commit()
             inc["cr"] = 1
             inc["verified"] = 1
-        safe = reoon.bucket(ld.verify)[0] == "valid"
-        if safe:
-            inc["safe"] = 1
-            if not ld.result:
-                ld.status = "running"
-                s.commit()
-                extra_rules = _rules_list(s, variable_set) if variable_set else []
-                r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
-                inc["cost"] = inc.get("cost", 0) + cost
-                if r.get("_status") == "error" or not r.get("ICPReview"):
-                    ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
-                    ld.status = "error"
-                    s.commit()
-                    inc["error"] = 1
-                else:
-                    ld.result = r
-                    ld.icp_decision = r.get("ICPReview") or ""
-                    ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
-                    s.commit()
-                    if r.get("_title_gate") == "rejected":
-                        inc["rejected"] = 1
-                    else:
-                        inc["enriched"] = 1
-        else:
-            inc["unsafe"] = 1
+            inc["safe" if bkt == "valid" else "unsafe"] = 1
         return inc
     finally:
         s.close()
@@ -1605,10 +1605,13 @@ def run_pipeline(list_id: int, body: PipelineBody):
         want = int(body.limit) if (body.limit and body.limit > 0 and not body.lead_ids) else None
 
         def is_done(result, verify):
-            if not verify:
+            # ICP-first: a lead is done when it's enriched AND (Non-ICP, or already
+            # verified). Non-ICP never needs verification.
+            if not result:
                 return False
-            safe = reoon.bucket(verify)[0] == "valid"
-            return (not safe) or bool(result)
+            if (result or {}).get("ICPReview") == "Non-ICP":
+                return True
+            return bool(verify)
 
         target_ids = []
         for lid, result, verify in cols.yield_per(2000):
