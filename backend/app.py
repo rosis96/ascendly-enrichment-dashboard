@@ -1310,17 +1310,20 @@ def create_list(body: CreateList):
 
 class IdsBody(BaseModel):
     lead_ids: list[int] = []
+    view: Optional[str] = None   # "select all in this view" instead of enumerating ids
 
 
 @app.post("/api/lists/{list_id}/clear")
 def clear_results(list_id: int, body: IdsBody):
-    """Clear enrichment results (selected leads, or the whole list if none given).
-    Verification is kept."""
+    """Clear enrichment results (selected leads, a whole view, or the whole list if
+    nothing given). Verification is kept."""
     s = SessionLocal()
     try:
         q = s.query(Lead).filter_by(list_id=list_id)
         if body.lead_ids:
             q = q.filter(Lead.id.in_(body.lead_ids))
+        elif body.view and body.view != "all":
+            q = _list_view_filter(q, body.view)
         n = q.update({Lead.result: {}, Lead.status: "pending"}, synchronize_session=False)
         s.commit()
         return {"ok": True, "cleared": n}
@@ -1329,13 +1332,16 @@ def clear_results(list_id: int, body: IdsBody):
 
 
 @app.delete("/api/lists/{list_id}/leads")
-def delete_leads(list_id: int, ids: str):
+def delete_leads(list_id: int, ids: str = "", view: Optional[str] = None):
     s = SessionLocal()
     try:
         wanted = [int(x) for x in ids.split(",") if x.strip().isdigit()]
         n = 0
         if wanted:
             n = s.query(Lead).filter(Lead.list_id == list_id, Lead.id.in_(wanted)).delete(synchronize_session=False)
+            s.commit()
+        elif view and view != "all":
+            n = _list_view_filter(s.query(Lead).filter(Lead.list_id == list_id), view).delete(synchronize_session=False)
             s.commit()
         return {"ok": True, "deleted": n}
     finally:
@@ -2207,8 +2213,15 @@ def reoon_balance():
         return {"enabled": True, "error": str(exc)}
 
 
-def _do_export(list_id, wanted):
-    # header info + filename from a small sample (memory-safe), then stream rows
+def _do_export(list_id, wanted, view=None):
+    # header info + filename from a small sample (memory-safe), then stream rows.
+    # `wanted` = explicit ids; else `view` = filter the whole list; else all.
+    def _scope(q):
+        if wanted:
+            return q.filter(Lead.id.in_(wanted))
+        if view and view != "all":
+            return _list_view_filter(q, view)
+        return q
     s0 = SessionLocal()
     try:
         l = s0.get(LeadList, list_id)
@@ -2223,10 +2236,7 @@ def _do_export(list_id, wanted):
                     if k not in hidden and k not in cset] + custom_names
 
         def base_query(s):
-            q = s.query(Lead).filter_by(list_id=list_id)
-            if wanted:
-                q = q.filter(Lead.id.in_(wanted))
-            return q.order_by(Lead.id)
+            return _scope(s.query(Lead).filter_by(list_id=list_id)).order_by(Lead.id)
 
         sample = base_query(s0).limit(500).all()
         raw_cols = []
@@ -2245,10 +2255,7 @@ def _do_export(list_id, wanted):
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
         s = SessionLocal()
         try:
-            q = s.query(Lead).filter_by(list_id=list_id)
-            if wanted:
-                q = q.filter(Lead.id.in_(wanted))
-            for ld in q.order_by(Lead.id).yield_per(1000):
+            for ld in _scope(s.query(Lead).filter_by(list_id=list_id)).order_by(Lead.id).yield_per(1000):
                 row = _std_export_row(ld)
                 row += [(ld.data or {}).get(c, "") for c in raw_cols]
                 row.append((ld.verify or {}).get("is_safe_to_send", ""))
@@ -2274,13 +2281,14 @@ def export_list(list_id: int, ids: Optional[str] = None):
 
 class ExportBody(BaseModel):
     ids: list[int] = []
+    view: Optional[str] = None   # export a whole filtered view (Processed/Unsafe/etc.)
 
 
 @app.post("/api/lists/{list_id}/export")
 def export_list_post(list_id: int, body: ExportBody):
     """IDs in the body (no URL length limit), so exporting a full/large selection
-    can't hit HTTP 431. Empty ids = whole list."""
-    return _do_export(list_id, body.ids or None)
+    can't hit HTTP 431. Empty ids + view = that view; empty both = whole list."""
+    return _do_export(list_id, body.ids or None, view=body.view)
 
 
 @app.post("/api/jobs/{job_id}/cancel")

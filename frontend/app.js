@@ -5,7 +5,7 @@ const ROW_CAP_STEP = 250;   // how many rows to render at once (windowing for sm
 const state = { listId: null, variableSet: "ascendly_lean", selectable: [], selected: [],
   poll: null, selectedLeads: new Set(), running: false, jobId: null,
   view: "table", client: "ascendly", labels: {}, editId: null, filter: "all", industryFilter: "",
-  rowCap: ROW_CAP_STEP, lastCount: 0, tick: 0, page: 1, listView: "all" };
+  rowCap: ROW_CAP_STEP, lastCount: 0, tick: 0, page: 1, listView: "all", selectAllView: false };
 
 function leadCat(ld){
   if(!ld.result || Object.keys(ld.result).length === 0) return "notrun";
@@ -146,7 +146,7 @@ async function selectList(id, name, count){
   showView("table");
   state.selectedLeads.clear();
   state.rowCap = ROW_CAP_STEP;
-  state.page = 1; state.listView = "all"; state.filter = "all";
+  state.page = 1; state.listView = "all"; state.filter = "all"; state.selectAllView = false;
   if(state.poll){ clearInterval(state.poll); state.poll = null; }
   state.running = false; updateRunUI();
   $("viewTitle").textContent = name;
@@ -206,11 +206,23 @@ function renderGrid(d){
     `<span class="fchip${curView === k ? " on" : ""}" data-v="${k}">${label} <b>${(counts[k] || 0).toLocaleString()}</b></span>`).join("");
   const n = state.selectedLeads.size;
   const pageIds = leads.map(l => l.id);
-  const selPage = pageIds.length
-    ? `<span class="gtact" data-act="selpage">Select page (${pageIds.length})</span>` : "";
-  const acts = `<span class="gtact" data-act="split">Split by industry</span>` + selPage + (n > 0
-    ? `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`
-    : `<span class="gtact" data-act="clrall">Clear results</span>`);
+  const viewTotal = li.view_total || 0;
+  const selectAll = state.selectAllView;
+  let acts = `<span class="gtact" data-act="split">Split by industry</span>`;
+  if(selectAll){
+    acts += `<span class="dbsel"><b>All ${viewTotal.toLocaleString()}</b> selected</span>` +
+      `<span class="gtact del" data-act="delv">Delete ${viewTotal.toLocaleString()}</span>` +
+      `<span class="gtact" data-act="clrv">Clear ${viewTotal.toLocaleString()}</span>` +
+      `<span class="gtact" data-act="expv">Export ${viewTotal.toLocaleString()}</span>` +
+      `<span class="gtact" data-act="unsel">Cancel</span>`;
+  } else if(n > 0){
+    acts += `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`;
+    if(viewTotal > n) acts += `<span class="gtact" data-act="selall">Select all ${viewTotal.toLocaleString()}</span>`;
+  } else {
+    if(pageIds.length) acts += `<span class="gtact" data-act="selpage">Select page (${pageIds.length})</span>`;
+    if(viewTotal > pageIds.length) acts += `<span class="gtact" data-act="selall">Select all ${viewTotal.toLocaleString()}</span>`;
+    acts += `<span class="gtact" data-act="clrall">Clear results</span>`;
+  }
   const pager = `<div class="gridpager">` +
     `<button class="gbtn pgbtn" id="pgPrev" ${(li.page || 1) <= 1 ? "disabled" : ""}>‹ Prev</button>` +
     `<span class="pginfo">Page ${(li.page || 1).toLocaleString()} / ${(li.pages || 1).toLocaleString()} · ` +
@@ -218,14 +230,19 @@ function renderGrid(d){
     `${li.view_total !== li.count ? ` (of ${(li.count || 0).toLocaleString()})` : ""}</span>` +
     `<button class="gbtn pgbtn" id="pgNext" ${(li.page || 1) >= (li.pages || 1) ? "disabled" : ""}>Next ›</button></div>`;
   gt.innerHTML = pager + `<div class="fchips">${chipHtml}</div><div class="gtacts">${acts}</div>`;
-  const goPage = p => { state.page = p; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh(); };
+  const goPage = p => { state.page = p; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); state.selectAllView = false; refresh(); };
   gt.querySelectorAll("[data-v]").forEach(c => c.onclick = () => {
-    state.listView = c.dataset.v; state.page = 1; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); refresh();
+    state.listView = c.dataset.v; state.page = 1; state.rowCap = ROW_CAP_STEP; state.selectedLeads.clear(); state.selectAllView = false; refresh();
   });
   const pgP = gt.querySelector("#pgPrev"); if(pgP) pgP.onclick = () => { if((li.page || 1) > 1) goPage((li.page || 1) - 1); };
   const pgN = gt.querySelector("#pgNext"); if(pgN) pgN.onclick = () => { if((li.page || 1) < (li.pages || 1)) goPage((li.page || 1) + 1); };
   const wire = (act, fn) => { const e = gt.querySelector(`[data-act="${act}"]`); if(e) e.onclick = fn; };
   wire("selpage", () => { pageIds.forEach(id => state.selectedLeads.add(id)); renderGrid(d); updateScope(); });
+  wire("selall", () => { state.selectAllView = true; state.selectedLeads.clear(); renderGrid(d); updateScope(); });
+  wire("unsel", () => { state.selectAllView = false; state.selectedLeads.clear(); renderGrid(d); updateScope(); });
+  wire("expv", exportView);
+  wire("clrv", clearView);
+  wire("delv", deleteView);
   wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));
@@ -253,7 +270,7 @@ function renderGrid(d){
   shown.forEach(ld => {
     const r = ld.result || {};
     const tr = document.createElement("tr");
-    const ck = state.selectedLeads.has(ld.id) ? "checked" : "";
+    const ck = (state.selectAllView || state.selectedLeads.has(ld.id)) ? "checked" : "";
     let cells = `<td class="cbx"><input type="checkbox" class="rowcb" data-id="${ld.id}" ${ck}></td>`;
     const ini = (((ld.first_name || "")[0] || "") + ((ld.last_name || "")[0] || "")).toUpperCase()
       || ((ld.company || "?")[0] || "?").toUpperCase();
@@ -284,8 +301,9 @@ function renderGrid(d){
 
   const selAll = $("selAll");
   if(selAll){
-    selAll.checked = view.length > 0 && view.every(l => state.selectedLeads.has(l.id));
+    selAll.checked = state.selectAllView || (view.length > 0 && view.every(l => state.selectedLeads.has(l.id)));
     selAll.onchange = () => {
+      state.selectAllView = false;
       if(selAll.checked) view.forEach(l => state.selectedLeads.add(l.id));
       else view.forEach(l => state.selectedLeads.delete(l.id));
       renderGrid(d); updateScope();
@@ -294,9 +312,10 @@ function renderGrid(d){
   body.querySelectorAll(".rowcb").forEach(cb => {
     cb.onchange = () => {
       const id = +cb.dataset.id;
+      // leaving "select all view" mode: keep the rest of the page selected
+      if(state.selectAllView){ state.selectAllView = false; view.forEach(l => state.selectedLeads.add(l.id)); }
       cb.checked ? state.selectedLeads.add(id) : state.selectedLeads.delete(id);
-      const sa = $("selAll"); if(sa) sa.checked = view.every(l => state.selectedLeads.has(l.id));
-      updateScope();
+      renderGrid(d); updateScope();
     };
   });
   const byId = {}; view.forEach(l => { byId[l.id] = l; });
@@ -328,7 +347,10 @@ function openDetail(ld){
 function updateScope(){
   const n = state.selectedLeads.size;
   const info = $("selInfo"), lim = $("limWrap");
-  if(n > 0){ info.hidden = false; info.textContent = `${n} selected — Run uses these`; lim.style.opacity = ".4"; }
+  if(state.selectAllView){
+    info.hidden = false; info.textContent = `All "${state.listView}" selected — Export/Clear/Delete use all`;
+    lim.style.opacity = ".4";
+  } else if(n > 0){ info.hidden = false; info.textContent = `${n} selected — Run uses these`; lim.style.opacity = ".4"; }
   else { info.hidden = true; lim.style.opacity = "1"; }
 }
 
@@ -519,29 +541,49 @@ async function stop(){
   await api(`/api/jobs/${state.jobId}/cancel`, { method: "POST" });
 }
 
-async function exportCsv(){
-  if(!state.listId) return;
-  // Send ids in the POST body (not the URL) so big selections can't hit HTTP 431.
-  let ids = [];
-  if(state.selectedLeads.size > 0) ids = [...state.selectedLeads];
-  else if(state.filter !== "all") ids = (state.viewIds || []);
+async function _downloadExport(body){
   try{
     const r = await fetch(`/api/lists/${state.listId}/export`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify(body),
     });
     if(r.status === 401){ window.location = "/login"; return; }
     if(!r.ok){ alert("Export failed. Try again."); return; }
     const blob = await r.blob();
     const cd = r.headers.get("Content-Disposition") || "";
     const m = cd.match(/filename="?([^"]+)"?/);
-    const fname = m ? m[1] : "export.csv";
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = fname;
+    a.href = url; a.download = m ? m[1] : "export.csv";
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   }catch(e){ alert("Export failed. Try again."); }
+}
+
+async function exportCsv(){
+  if(!state.listId) return;
+  const ids = state.selectedLeads.size > 0 ? [...state.selectedLeads] : [];
+  await _downloadExport({ ids });
+}
+
+// "Select all in view" actions — operate on the WHOLE filtered view, server-side.
+async function exportView(){
+  if(!state.listId) return;
+  await _downloadExport({ view: state.listView || "all" });
+}
+async function clearView(){
+  if(!state.listId) return;
+  if(!confirm(`Clear enrichment results for ALL leads in the "${state.listView}" view? (Verification is kept.)`)) return;
+  await api(`/api/lists/${state.listId}/clear`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ view: state.listView || "all" }) });
+  state.selectAllView = false; refresh(); loadLists();
+}
+async function deleteView(){
+  if(!state.listId) return;
+  if(!confirm(`Permanently DELETE all leads in the "${state.listView}" view? This can't be undone.`)) return;
+  await api(`/api/lists/${state.listId}/leads?view=${encodeURIComponent(state.listView || "all")}`, { method: "DELETE" });
+  state.selectAllView = false; refresh(); loadLists();
 }
 
 async function loadBalance(){
