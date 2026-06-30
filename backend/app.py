@@ -522,36 +522,44 @@ def _verify_one(lead_id, mode):
 
 
 def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
-    """ICP-FIRST pipeline: decide ICP + write copy (OpenAI) FIRST, and only spend a
-    Reoon credit verifying the email if the lead is ICP. Non-ICP leads never hit
-    Reoon. This is the credit-saving order the user wants."""
+    """Exact order (no wasted APIs):
+       1) ICP decision only (scrape + decide, NO copy).
+       2) Non-ICP -> STOP. No Reoon, no copy.
+       3) ICP -> verify the email (Reoon).
+       4) Email safe -> write the copy. Unsafe -> STOP, no copy.
+    So Reoon is only spent on ICP leads, and writer tokens only on ICP + safe."""
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
         if not ld:
             return None
         inc = {}
-        # 1) Enrich (scrape -> ICP decision -> copy). No Reoon spent here.
+        extra_rules = _rules_list(s, variable_set) if variable_set else []
+
+        # 1) ICP decision only (no copy). Skip if we already have a result.
         if not ld.result:
             ld.status = "running"
             s.commit()
-            extra_rules = _rules_list(s, variable_set) if variable_set else []
-            r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
+            r, cost = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile,
+                                extra_rules, icp_only=True)
             inc["cost"] = inc.get("cost", 0) + cost
             if r.get("_status") == "error" or not r.get("ICPReview"):
                 ld.result = {"_status": "error", "_error": str(r.get("_error", "No website content"))[:200]}
                 ld.status = "error"
                 s.commit()
                 return {**inc, "error": 1}
-            ld.result = r
             ld.icp_decision = r.get("ICPReview") or ""
-            ld.status = "skipped" if r.get("ICPReview") == "Non-ICP" else "done"
+            ld.result = r
+            if r.get("ICPReview") == "Non-ICP":     # 2) Non-ICP -> stop (no Reoon, no copy)
+                ld.status = "skipped"
+                s.commit()
+                return {**inc, "nonicp": 1}
+            ld.status = "pending"                    # ICP, decided; copy not written yet
             s.commit()
-            if r.get("ICPReview") == "Non-ICP":
-                return {**inc, "nonicp": 1}        # 2) Non-ICP -> STOP, no verification
-            inc["enriched"] = 1
-        # 3) ICP lead -> verify the email (Reoon), only if not already verified.
+
         is_icp = (ld.icp_decision or (ld.result or {}).get("ICPReview")) != "Non-ICP"
+
+        # 3) ICP -> verify the email (only ICP leads ever hit Reoon).
         if is_icp and not ld.verify:
             res = reoon.verify_one(ld.email, mode)
             bkt, label = reoon.bucket(res)
@@ -561,6 +569,26 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             inc["cr"] = 1
             inc["verified"] = 1
             inc["safe" if bkt == "valid" else "unsafe"] = 1
+
+        safe = bool(ld.verify) and reoon.bucket(ld.verify)[0] == "valid"
+        needs_copy = is_icp and bool((ld.result or {}).get("_icp_only"))
+
+        # 4) ICP + safe -> write the copy now. Unsafe -> leave as ICP-only (no copy).
+        if is_icp and safe and needs_copy:
+            r2, cost2 = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
+            inc["cost"] = inc.get("cost", 0) + cost2
+            if r2.get("_status") == "error" or not r2.get("ICPReview"):
+                ld.result = {"_status": "error", "_error": str(r2.get("_error", "No website content"))[:200]}
+                ld.status = "error"
+                s.commit()
+                return {**inc, "error": 1}
+            ld.result = r2
+            ld.icp_decision = r2.get("ICPReview") or "ICP"
+            ld.status = "done"
+            s.commit()
+            inc["enriched"] = 1
+        # ICP + unsafe: stays status 'pending' with the ICP-only result + email_status,
+        # so it shows under the Unsafe chip and is never re-processed (already verified).
         return inc
     finally:
         s.close()

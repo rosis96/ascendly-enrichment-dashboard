@@ -1264,7 +1264,7 @@ Return JSON only: {{"decision": "approved" or "rejected", "reason": "3-5 words"}
     return False, "Title not a decision-maker"
 
 
-def process_row(oai_client, client_profile, variable_set, row, url_col, max_pages, use_cache):
+def process_row(oai_client, client_profile, variable_set, row, url_col, max_pages, use_cache, icp_only=False):
     url = normalize_url(row.get(url_col, ""))
     if not url:
         return {"_status": "error", "_error": "Empty URL"}
@@ -1327,6 +1327,19 @@ def process_row(oai_client, client_profile, variable_set, row, url_col, max_page
         result["ICP_reason"] = icp_reason or "Non-ICP, low outbound fit"
         result["_status"] = "ok"
         result["_error"] = ""
+        result["_scraped_urls"] = " | ".join(scraped["urls"])
+        return result
+
+    # ICP-only mode: the lead IS ICP, but stop here without writing copy. The
+    # caller verifies the email first and only writes copy if it's deliverable —
+    # so no writer tokens are spent on ICP leads with bad emails.
+    if icp_only:
+        result = {key: "" for key in variable_set["output_keys"]}
+        result["ICPReview"] = icp_review
+        result["ICP_reason"] = icp_reason or "ICP"
+        result["_status"] = "ok"
+        result["_error"] = ""
+        result["_icp_only"] = True
         result["_scraped_urls"] = " | ".join(scraped["urls"])
         return result
 

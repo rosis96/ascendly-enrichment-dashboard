@@ -426,7 +426,7 @@ def _demo_value(key, company):
     return samples.get(key, f"[{key} for {company}]")
 
 
-def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
+def demo_enrich(lead, variable_set, selected=None, custom_specs=None, icp_only=False):
     """Return (result_dict, est_cost). Deterministic, no network."""
     custom_specs = custom_specs or []
     title = lead.get("title") or ""
@@ -457,6 +457,14 @@ def demo_enrich(lead, variable_set, selected=None, custom_specs=None):
             res[k] = "N/A"
         res["ICPReview"] = "Non-ICP"
         res["ICP_reason"] = "Public pricing / low-value"
+        res["_status"] = "ok"
+        return res, 0.01
+
+    # ICP-only mode: decide ICP, no copy.
+    if icp_only:
+        res["ICPReview"] = "ICP"
+        res["ICP_reason"] = "ICP (demo)"
+        res["_icp_only"] = True
         res["_status"] = "ok"
         return res, 0.01
 
@@ -898,14 +906,16 @@ def load_client_profile(name):
         return {}
 
 
-def enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None):
-    """Entry point used by the job runner. Switches on ENRICH_MODE."""
+def enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None, icp_only=False):
+    """Entry point used by the job runner. Switches on ENRICH_MODE.
+    icp_only=True returns just the ICP decision (no copy) so the caller can verify
+    the email before spending writer tokens."""
     if os.getenv("ENRICH_MODE", "demo").lower() == "real":
-        return _real_enrich(lead, base, selected, custom_specs, profile, extra_rules)
-    return demo_enrich(lead, base, selected, custom_specs)
+        return _real_enrich(lead, base, selected, custom_specs, profile, extra_rules, icp_only=icp_only)
+    return demo_enrich(lead, base, selected, custom_specs, icp_only=icp_only)
 
 
-def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None):
+def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, extra_rules=None, icp_only=False):
     """Run the live engine for one lead, using the workspace's profile + the
     effective variable set (custom variables override same-named built-ins)."""
     import sys
@@ -1031,7 +1041,8 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
         # Pages the enricher reads per company: homepage + best priority subpages
         # (about, services, pricing...). Default 5; tune via ENRICH_MAX_PAGES.
         enrich_pages = max(1, int(os.getenv("ENRICH_MAX_PAGES", "5")))
-        result = engine.process_row(client, profile or {}, vs, row, "website", max_pages=enrich_pages, use_cache=True)
+        result = engine.process_row(client, profile or {}, vs, row, "website",
+                                    max_pages=enrich_pages, use_cache=True, icp_only=icp_only)
     except Exception as exc:
         return ({"_status": "error", "_error": f"{type(exc).__name__}: {exc}"[:300]}, 0.0)
 
@@ -1042,7 +1053,9 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
     elif result.get("ICPReview") == "ICP":
         result["_title_gate"] = "pass"
 
-    if result.get("ICPReview") == "ICP":
+    if result.get("_icp_only"):
+        cost = 0.012                      # ICP decision only (no writer tokens)
+    elif result.get("ICPReview") == "ICP":
         cost = 0.045
     elif result.get("_title_gate") == "rejected":
         cost = 0.003
