@@ -1438,8 +1438,10 @@ async function importJson(){
 function builderHtml(){
   return `<div class="card builder" id="builder" hidden>
     <input id="cvName" placeholder="Variable name   e.g. Personalization" />
-    <div class="blabel">How to write it — rules & guidance</div>
+    <div class="blabel">How to write it — guidance</div>
     <textarea id="cvGuidance" rows="3" placeholder="Explain in plain words how this should be written. e.g. One sentence opening on a specific, real detail from the prospect's website. No pitch. No greeting. Mention something only someone who read their site would know."></textarea>
+    <div class="blabel">Rules for this variable <span class="sk">(one rule per line — obeyed while writing THIS variable)</span></div>
+    <textarea id="cvRules" rows="3" placeholder="Start with a concrete observation, not praise.&#10;Never end with a question mark.&#10;Do not use the words 'impressive' or 'world-class'.&#10;Mention a real service or market from their site."></textarea>
     <div class="blabel">Format <span class="sk">(optional — leave blank for free-form variables like personalization)</span></div>
     <textarea id="cvTemplate" rows="2" placeholder="Optional. Use {{placeholders}} for fill-in-the-blank parts.\ne.g. We help {{industry}} get {{ideal customers}} by {{what we do}}."></textarea>
     <div class="brow">Whole-variable word range <input id="cvMin" type="number" min="1" placeholder="min" /> to <input id="cvMax" type="number" min="1" placeholder="max" /></div>
@@ -1472,7 +1474,7 @@ function detectPlaceholders(){
 
 function resetBuilder(){
   state.editId = null;
-  ["cvName", "cvGuidance", "cvTemplate", "cvMin", "cvMax", "cvExamples"].forEach(id => { if($(id)) $(id).value = ""; });
+  ["cvName", "cvGuidance", "cvRules", "cvTemplate", "cvMin", "cvMax", "cvExamples"].forEach(id => { if($(id)) $(id).value = ""; });
   if($("cvPlaceholders")) detectPlaceholders();
   if($("cvSave")) $("cvSave").textContent = "Save variable";
 }
@@ -1491,8 +1493,9 @@ async function saveCustom(){
     examples: el.querySelector(".pex").value.split("\n").map(s => s.trim()).filter(Boolean),
   }));
   const examples = $("cvExamples").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const rules = ($("cvRules") ? $("cvRules").value : "").split("\n").map(s => s.trim()).filter(Boolean);
   const body = {
-    variable_set: state.variableSet, label, template, purpose: guidance, examples,
+    variable_set: state.variableSet, label, template, purpose: guidance, examples, rules,
     min_words: parseInt($("cvMin").value, 10) || null, max_words: parseInt($("cvMax").value, 10) || null,
     placeholders, id: state.editId,
   };
@@ -1511,6 +1514,7 @@ async function editCustom(id){
   state.editId = id;
   $("cvName").value = spec.label || row.label || "";
   $("cvGuidance").value = spec.purpose || "";
+  if($("cvRules")) $("cvRules").value = (spec.writing_rules || spec.rules || []).join("\n");
   $("cvTemplate").value = spec.template || "";
   $("cvMin").value = spec.min_words || "";
   $("cvMax").value = spec.max_words || "";

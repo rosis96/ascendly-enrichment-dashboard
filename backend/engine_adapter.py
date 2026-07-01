@@ -299,7 +299,7 @@ def normalize_variable(v):
     return spec
 
 
-def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose="", examples=None):
+def build_custom_spec(label, template, placeholders, min_words=None, max_words=None, purpose="", examples=None, rules=None):
     """Turn the builder's input into a valid engine-format variable spec.
 
     Two styles, mixable:
@@ -341,6 +341,14 @@ def build_custom_spec(label, template, placeholders, min_words=None, max_words=N
     examples = [e for e in (examples or []) if e]
     if examples:
         spec["example_outputs"] = examples
+
+    # Per-variable rules — obeyed while writing THIS variable. The engine dumps the
+    # full spec into the prompt, so these reach the model verbatim.
+    if isinstance(rules, str):
+        rules = [x.strip() for x in rules.splitlines() if x.strip()]
+    rules = [r for r in (rules or []) if str(r).strip()]
+    if rules:
+        spec["writing_rules"] = rules
     return spec
 
 

@@ -878,6 +878,7 @@ class CustomVarBody(BaseModel):
     min_words: Optional[int] = None
     max_words: Optional[int] = None
     placeholders: list[Placeholder] = []
+    rules: list[str] = []       # per-variable writing rules (obeyed for THIS variable)
     id: Optional[int] = None    # set to update an existing custom variable
 
 
@@ -909,6 +910,7 @@ def create_custom(body: CustomVarBody):
         placeholders=[p.dict() for p in body.placeholders],
         min_words=body.min_words, max_words=body.max_words,
         purpose=body.purpose, examples=body.examples,
+        rules=body.rules,
     )
     s = SessionLocal()
     try:
