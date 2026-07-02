@@ -1915,6 +1915,13 @@ function init(){
   }
   $("limitN").oninput = updateScope;
   const savedLimit = localStorage.getItem("defLimit"); if(savedLimit) $("limitN").value = savedLimit;
+  // Persist the Workers value so it survives a page reload (was resetting to default).
+  const savedWorkers = localStorage.getItem("defWorkers");
+  if(savedWorkers && $("workersN")) $("workersN").value = savedWorkers;
+  if($("workersN")) $("workersN").oninput = e => {
+    const v = parseInt(e.target.value, 10);
+    if(v > 0) localStorage.setItem("defWorkers", String(v));
+  };
   showView("table");
   loadBalance();
   restoreWorkspace().then(() => loadEnrichments()).then(() => loadLists()).then(restoreLastList);
