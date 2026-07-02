@@ -28,8 +28,9 @@ class Lead(Base):
     data = Column(JSON, default=dict)        # raw imported row
     result = Column(JSON, default=dict)      # {ICPReview, ICP_reason, _title_gate, <vars>, _status}
     verify = Column(JSON, default=dict)      # raw Reoon result
-    email_status = Column(String, default="")  # verdict label (safe/catch_all/invalid/role/...)
-    verify_source = Column(String, default="")  # who verified: "free" (our system) | "reoon"
+    email_status = Column(String, default="")  # REOON verdict label (safe/catch_all/unknown/...)
+    free_status = Column(String, default="")    # OUR free verifier's verdict (ok/role/no mx/disposable/bad syntax)
+    verify_source = Column(String, default="")  # who made the final call: "free" (our system rejected) | "reoon"
     industry = Column(String, default="")    # umbrella industry from website classification
     title_status = Column(String, default="")  # standalone title check: pass | rejected
     esp = Column(String, default="")         # email provider: Microsoft | Google | Other | Unknown

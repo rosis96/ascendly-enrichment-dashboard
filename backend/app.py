@@ -253,7 +253,8 @@ _STD_EXPORT = [("First Name", "first_name"), ("Last Name", "last_name"), ("Title
                ("Company", "company"), ("Website", "website"), ("Email", "email"),
                ("Industry", "industry"), ("ESP", "esp"), ("Employees", "employees"),
                ("Country", "country"), ("State", "state"), ("Seniority", "seniority"),
-               ("Email Status", "email_status"), ("Verified By", "verify_source")]
+               ("System Check", "free_status"), ("Reoon Status", "email_status"),
+               ("Verified By", "verify_source")]
 # raw `data` keys that duplicate a standard column are skipped (mostly affects
 # older leads imported before mapping, whose data held the whole row).
 _STD_RAW_SKIP = {"first name", "last name", "first_name", "last_name", "firstname", "lastname",
@@ -543,16 +544,19 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
         if (ld.status or "") == "invalid" and not ld.verify:
             return inc
 
-        # 1) FREE verify — reject definitively-undeliverable emails at $0.
-        #    Only if we haven't already verified this lead (resume-safe).
+        # 1) FREE verify — record OUR verdict for EVERY lead, and reject the
+        #    definitively-undeliverable at $0. Only if not already verified (resume-safe).
         if not ld.verify:
             fv = email_verify.check(ld.email)
             if fv["verdict"] == "invalid":
+                ld.free_status = fv.get("reason") or "invalid"   # e.g. "no mail server (MX)"
                 ld.email_status = "invalid"
                 ld.verify_source = "free"     # rejected by OUR system — no Reoon spent
                 ld.status = "invalid"
                 s.commit()
                 return {**inc, "invalid": 1}
+            # passed our free checks -> remember what we said, then let Reoon confirm
+            ld.free_status = "role" if fv.get("role") else "ok"
 
         # 2) Reoon verify — confirm the mailbox exists. Only on free-check survivors.
         if not ld.verify:
@@ -1568,7 +1572,7 @@ def get_list(list_id: int, page: int = 1, page_size: int = LIST_LEAD_CAP, view: 
                 "title": ld.title, "company": ld.company, "website": ld.website,
                 "email": ld.email, "status": ld.status, "result": ld.result or {},
                 "verify": ld.verify or {}, "email_status": ld.email_status or "",
-                "verify_source": ld.verify_source or "",
+                "verify_source": ld.verify_source or "", "free_status": ld.free_status or "",
                 "industry": ld.industry or "", "title_status": ld.title_status or "",
                 "esp": ld.esp or "",
             } for ld in leads],
