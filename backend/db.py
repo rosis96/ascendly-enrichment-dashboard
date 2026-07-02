@@ -36,7 +36,8 @@ def _migrate():
                   ("title_status", "VARCHAR"), ("esp", "VARCHAR"),
                   ("employees", "INTEGER"), ("country", "VARCHAR"), ("state", "VARCHAR"),
                   ("seniority", "VARCHAR"),
-                  ("icp_decision", "VARCHAR"), ("icp_score", "INTEGER"), ("icp_confidence", "INTEGER")],
+                  ("icp_decision", "VARCHAR"), ("icp_score", "INTEGER"), ("icp_confidence", "INTEGER"),
+                  ("verify_source", "VARCHAR")],
         "jobs": [("kind", "VARCHAR"), ("summary", "JSON")],
     }
     with engine.begin() as conn:

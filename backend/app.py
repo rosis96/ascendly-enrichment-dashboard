@@ -253,7 +253,7 @@ _STD_EXPORT = [("First Name", "first_name"), ("Last Name", "last_name"), ("Title
                ("Company", "company"), ("Website", "website"), ("Email", "email"),
                ("Industry", "industry"), ("ESP", "esp"), ("Employees", "employees"),
                ("Country", "country"), ("State", "state"), ("Seniority", "seniority"),
-               ("Email Status", "email_status")]
+               ("Email Status", "email_status"), ("Verified By", "verify_source")]
 # raw `data` keys that duplicate a standard column are skipped (mostly affects
 # older leads imported before mapping, whose data held the whole row).
 _STD_RAW_SKIP = {"first name", "last name", "first_name", "last_name", "firstname", "lastname",
@@ -549,6 +549,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             fv = email_verify.check(ld.email)
             if fv["verdict"] == "invalid":
                 ld.email_status = "invalid"
+                ld.verify_source = "free"     # rejected by OUR system — no Reoon spent
                 ld.status = "invalid"
                 s.commit()
                 return {**inc, "invalid": 1}
@@ -559,6 +560,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             bkt, label = reoon.bucket(res)
             ld.verify = res
             ld.email_status = label
+            ld.verify_source = "reoon"        # verified by Reoon (a credit was used)
             inc["cr"] = 1
             inc["verified"] = 1
             inc["safe" if bkt == "valid" else "unsafe"] = 1
@@ -1566,6 +1568,7 @@ def get_list(list_id: int, page: int = 1, page_size: int = LIST_LEAD_CAP, view: 
                 "title": ld.title, "company": ld.company, "website": ld.website,
                 "email": ld.email, "status": ld.status, "result": ld.result or {},
                 "verify": ld.verify or {}, "email_status": ld.email_status or "",
+                "verify_source": ld.verify_source or "",
                 "industry": ld.industry or "", "title_status": ld.title_status or "",
                 "esp": ld.esp or "",
             } for ld in leads],

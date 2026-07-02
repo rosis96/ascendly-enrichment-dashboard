@@ -256,7 +256,7 @@ function renderGrid(d){
   }
   state.viewIds = view.map(l => l.id);
 
-  const cols = ["Email · Reoon", "Title gate", "ICP", "Industry", "ESP", ...state.selected.map(pretty)];
+  const cols = ["Email check", "Verified by", "Title gate", "ICP", "Industry", "ESP", ...state.selected.map(pretty)];
   $("head").innerHTML = `<th class="cbx"><input type="checkbox" id="selAll"></th><th>Lead</th>` +
     cols.map(c => `<th>${esc(c)}</th>`).join("") +
     `<th style="color:var(--acc-tx);cursor:pointer">+ enrichment</th>`;
@@ -278,6 +278,7 @@ function renderGrid(d){
       `<div class="leadtext"><b>${esc(ld.first_name)} ${esc(ld.last_name)}</b>` +
       `<s>${esc(ld.company)}${ld.title ? " · " + esc(ld.title) : ""}</s></div></div></td>`;
     cells += `<td>${emailCell(ld, r)}</td>`;
+    cells += `<td>${verifiedByCell(ld)}</td>`;
     cells += `<td>${titleCell(ld, r)}</td>`;
     cells += `<td>${icpCell(ld, r)}</td>`;
     cells += `<td>${ld.industry ? `<span class="pill p-gray">${esc(ld.industry)}</span>` : `<span class="sk">—</span>`}</td>`;
@@ -384,13 +385,24 @@ function hasResult(ld){ return ld.result && Object.keys(ld.result).length > 0; }
 function hasVerify(ld){ return ld.verify && Object.keys(ld.verify).length > 0; }
 
 function emailCell(ld){
-  if(!hasVerify(ld)) return ld.email ? `<span class="sk">—</span>` : `<span class="sk">no email</span>`;
   const status = (ld.email_status || "").toLowerCase();
+  // Free-layer rejection (rejected before Reoon, so no verify object): still show it.
+  if(ld.verify_source === "free" || (!hasVerify(ld) && status)){
+    if(!status) return ld.email ? `<span class="sk">—</span>` : `<span class="sk">no email</span>`;
+    return `<span class="pill p-red">${esc(status.replace(/_/g, " "))}</span>`;
+  }
+  if(!hasVerify(ld)) return ld.email ? `<span class="sk">—</span>` : `<span class="sk">no email</span>`;
   const safe = ld.verify.is_safe_to_send === true;
   let bkt = safe || ["safe","valid"].includes(status) ? "valid"
     : ["invalid","disposable","spamtrap","disabled"].includes(status) ? "invalid" : "risky";
   const label = status ? status.replace(/_/g, " ") : (safe ? "valid" : "risky");
   return `<span class="pill ${VBUCKET[bkt]}">${esc(label)}</span>`;
+}
+// Which layer verified the email: our free system, or Reoon (a paid credit).
+function verifiedByCell(ld){
+  if(ld.verify_source === "free") return `<span class="pill p-gray" title="Rejected by our free checks — no Reoon credit used">Our system</span>`;
+  if(ld.verify_source === "reoon") return `<span class="pill p-acc" title="Verified by Reoon (1 credit)">Reoon</span>`;
+  return `<span class="sk">—</span>`;
 }
 function titleCell(ld, r){
   if(!hasResult(ld)){
