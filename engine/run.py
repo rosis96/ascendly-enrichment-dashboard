@@ -52,6 +52,20 @@ EXTRACT_CONTENT_CHARS = int(os.getenv("EXTRACT_CONTENT_CHARS", "14000"))
 # page text than the extractor. Smaller = cheaper input tokens per lead.
 WRITER_CONTENT_CHARS = int(os.getenv("WRITER_CONTENT_CHARS", "6000"))
 REPAIR_CONTENT_CHARS = 1800
+
+
+def _log_usage(tag, response):
+    """Print per-call token usage (input / cached / output) when LOG_TOKENS=1, so we
+    can see where tokens go and whether the static prompt prefix is being cached."""
+    if not os.getenv("LOG_TOKENS"):
+        return
+    try:
+        u = response.usage
+        details = getattr(u, "prompt_tokens_details", None)
+        cached = getattr(details, "cached_tokens", 0) if details else 0
+        print(f"[tokens] {tag} in={u.prompt_tokens} cached={cached or 0} out={u.completion_tokens}", flush=True)
+    except Exception:
+        pass
 REQUEST_DELAY = 0.2
 CHECKPOINT_EVERY = 10
 
@@ -673,6 +687,7 @@ SCRAPED WEBSITE CONTENT:
                 **_temp_kwargs(EXTRACT_TEMPERATURE),
                 messages=messages,
             )
+            _log_usage("extract", response)
             data = safe_json_loads(response.choices[0].message.content or "")
             break
         except Exception:
@@ -848,6 +863,7 @@ def call_openai(client, client_profile, variable_set, url, content, row_context,
             }
         ]
     )
+    _log_usage("writer", response)
 
     raw = response.choices[0].message.content or ""
     data = safe_json_loads(raw)
@@ -992,6 +1008,7 @@ WEBSITE CONTENT CONDENSED:
             }
         ]
     )
+    _log_usage("repair", response)
 
     repaired = safe_json_loads(response.choices[0].message.content or "")
     merged = dict(data)
