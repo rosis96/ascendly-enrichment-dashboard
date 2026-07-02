@@ -199,8 +199,8 @@ function renderGrid(d){
   const counts = li.counts || {};
   // Category chips show LIVE full-list counts and filter the WHOLE list server-side.
   const chips = [["all", "All"], ["processed", "Processed"], ["enriched", "Enriched"],
-    ["nonicp", "Non-ICP"], ["no_website", "No website"], ["unsafe", "Unsafe"],
-    ["notrun", "Not run"], ["title_rejected", "Title-rejected"]];
+    ["nonicp", "Non-ICP"], ["no_website", "No website"], ["invalid", "Invalid"],
+    ["unsafe", "Unsafe"], ["notrun", "Not run"], ["title_rejected", "Title-rejected"]];
   const curView = state.listView || "all";
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${curView === k ? " on" : ""}" data-v="${k}">${label} <b>${(counts[k] || 0).toLocaleString()}</b></span>`).join("");
@@ -445,7 +445,7 @@ function renderBar(d){
   } else if(j.kind === "pipeline"){
     cost.textContent = `${s.cr||0} cr · $${(j.cost || 0).toFixed(2)}`;
     const tail = (j.status === "done" || j.status === "cancelled")
-      ? ` · ${s.enriched||0} enriched · ${s.unsafe||0} unsafe · ${s.rejected||0} title-rejected` : "";
+      ? ` · ${s.enriched||0} enriched · ${s.nonicp||0} Non-ICP · ${s.invalid||0} invalid · ${s.unsafe||0} unsafe` : "";
     stat.textContent = `${pre}${j.done} of ${j.total} processed${tail}`;
   } else if(j.kind === "classify"){
     cost.textContent = "$" + (j.cost || 0).toFixed(2);

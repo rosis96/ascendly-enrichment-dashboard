@@ -25,6 +25,7 @@ from sqlalchemy import or_, and_, func
 import engine_adapter as ea
 from integrations import reoon
 from integrations import esp as esp_detect
+from integrations import email_verify
 
 
 def _custom_specs(s, variable_set):
@@ -384,7 +385,7 @@ def _apply_agg(job, agg):
         job.summary = {"valid": agg.get("valid", 0), "risky": agg.get("risky", 0), "invalid": agg.get("invalid", 0)}
     elif job.kind == "pipeline":
         job.cost = round(agg.get("cost", 0), 4)
-        job.summary = {k: agg.get(k, 0) for k in ("verified", "safe", "enriched", "unsafe", "rejected", "cr")}
+        job.summary = {k: agg.get(k, 0) for k in ("verified", "safe", "enriched", "unsafe", "invalid", "nonicp", "rejected", "cr")}
     elif job.kind == "classify":
         job.cost = round(agg.get("cost", 0), 4)
         job.summary = {"classified": agg.get("classified", 0), "nosite": agg.get("nosite", 0)}
@@ -522,12 +523,13 @@ def _verify_one(lead_id, mode):
 
 
 def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, variable_set=None):
-    """Exact order (no wasted APIs):
-       1) ICP decision only (scrape + decide, NO copy).
-       2) Non-ICP -> STOP. No Reoon, no copy.
-       3) ICP -> verify the email (Reoon).
-       4) Email safe -> write the copy. Unsafe -> STOP, no copy.
-    So Reoon is only spent on ICP leads, and writer tokens only on ICP + safe."""
+    """Cheapest-first funnel — each expensive step only runs on survivors:
+       1) FREE verify (syntax + MX + disposable). Invalid -> STOP ($0, no Reoon/OpenAI).
+       2) Reoon verify (mailbox exists?). Unsafe -> STOP (no OpenAI).
+       3) ICP decision only (scrape + decide, NO copy). Non-ICP -> STOP (no writer).
+       4) ICP -> write the copy.
+    So Reoon only runs on emails that pass the free check, and OpenAI only runs on
+    deliverable emails, and the writer only runs on ICP leads."""
     s = SessionLocal()
     try:
         ld = s.get(Lead, lead_id)
@@ -537,7 +539,43 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
         extra_rules = _rules_list(s, variable_set) if variable_set else []
         stage = None   # in-memory scrape+extraction to reuse for the copy step
 
-        # 1) ICP decision only (no copy). Skip if we already have a result.
+        # Already free-rejected: never spend Reoon/OpenAI on it (safety on re-feed).
+        if (ld.status or "") == "invalid" and not ld.verify:
+            return inc
+
+        # 1) FREE verify — reject definitively-undeliverable emails at $0.
+        #    Only if we haven't already verified this lead (resume-safe).
+        if not ld.verify:
+            fv = email_verify.check(ld.email)
+            if fv["verdict"] == "invalid":
+                ld.email_status = "invalid"
+                ld.status = "invalid"
+                s.commit()
+                return {**inc, "invalid": 1}
+
+        # 2) Reoon verify — confirm the mailbox exists. Only on free-check survivors.
+        if not ld.verify:
+            res = reoon.verify_one(ld.email, mode)
+            bkt, label = reoon.bucket(res)
+            ld.verify = res
+            ld.email_status = label
+            inc["cr"] = 1
+            inc["verified"] = 1
+            inc["safe" if bkt == "valid" else "unsafe"] = 1
+            if bkt != "valid":                        # unsafe -> STOP (no OpenAI at all)
+                ld.status = "unsafe"
+                s.commit()
+                return inc
+            s.commit()
+
+        safe = bool(ld.verify) and reoon.bucket(ld.verify)[0] == "valid"
+        if not safe:                                   # resume path: previously-verified unsafe
+            if (ld.status or "") not in ("unsafe", "invalid"):
+                ld.status = "unsafe"
+                s.commit()
+            return inc
+
+        # 3) Safe email -> ICP decision only (no copy). Skip if we already have a result.
         if not ld.result:
             ld.status = "running"
             s.commit()
@@ -552,7 +590,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             ld.icp_decision = r.get("ICPReview") or ""
             stage = r.pop("_stage", None)            # keep facts for the writer; NOT stored in DB
             ld.result = r
-            if r.get("ICPReview") == "Non-ICP":     # 2) Non-ICP -> stop (no Reoon, no copy)
+            if r.get("ICPReview") == "Non-ICP":     # Non-ICP -> stop (no copy)
                 ld.status = "skipped"
                 s.commit()
                 return {**inc, "nonicp": 1}
@@ -560,23 +598,10 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             s.commit()
 
         is_icp = (ld.icp_decision or (ld.result or {}).get("ICPReview")) != "Non-ICP"
-
-        # 3) ICP -> verify the email (only ICP leads ever hit Reoon).
-        if is_icp and not ld.verify:
-            res = reoon.verify_one(ld.email, mode)
-            bkt, label = reoon.bucket(res)
-            ld.verify = res
-            ld.email_status = label
-            s.commit()
-            inc["cr"] = 1
-            inc["verified"] = 1
-            inc["safe" if bkt == "valid" else "unsafe"] = 1
-
-        safe = bool(ld.verify) and reoon.bucket(ld.verify)[0] == "valid"
         needs_copy = is_icp and bool((ld.result or {}).get("_icp_only"))
 
-        # 4) ICP + safe -> write the copy now. Unsafe -> leave as ICP-only (no copy).
-        if is_icp and safe and needs_copy:
+        # 4) ICP -> write the copy now.
+        if is_icp and needs_copy:
             if stage:
                 r2, cost2 = ea.enrich_write(stage)   # reuse the ICP-pass extraction (no re-extract)
             else:
@@ -593,8 +618,6 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             ld.status = "done"
             s.commit()
             inc["enriched"] = 1
-        # ICP + unsafe: stays status 'pending' with the ICP-only result + email_status,
-        # so it shows under the Unsafe chip and is never re-processed (already verified).
         return inc
     finally:
         s.close()
@@ -1445,25 +1468,39 @@ async def upload(list_id: int, file: UploadFile = File(...), mapping: Optional[s
         s.close()
 
 
-_SAFE_LABELS = ["safe", "valid"]                       # Reoon "deliverable" buckets
-_PROCESSED_STATUS = ["done", "skipped", "error"]       # went through enrichment
+_SAFE_LABELS = ["safe", "valid"]                                   # Reoon "deliverable" buckets
+_PROCESSED_STATUS = ["done", "skipped", "error", "invalid", "unsafe"]  # reached a terminal state
 
 
-def _not_processed():
+def _pending_status():
+    # Not yet at a terminal status (untouched or mid-flight).
     return or_(Lead.status == None, Lead.status.in_(["", "pending", "running"]))  # noqa: E711
 
 
+def _not_processed():
+    return _pending_status()
+
+
 def _unsafe_cond():
-    # NOT enriched, but the email WAS verified and is not deliverable.
-    return and_(_not_processed(), Lead.email_status != None, Lead.email_status != "",  # noqa: E711
-                func.lower(Lead.email_status).notin_(_SAFE_LABELS))
+    # New pipeline marks Reoon-rejected leads status == "unsafe". Also catch legacy
+    # rows (old pipeline left status pending + a non-deliverable email_status).
+    legacy = and_(_pending_status(), Lead.email_status != None, Lead.email_status != "",  # noqa: E711
+                  func.lower(Lead.email_status).notin_(_SAFE_LABELS),
+                  func.lower(Lead.email_status) != "invalid")
+    return or_(Lead.status == "unsafe", legacy)
+
+
+def _notrun_cond():
+    # Truly untouched / ready: no terminal status and email not flagged.
+    return and_(_pending_status(), or_(Lead.email_status == None, Lead.email_status == "",  # noqa: E711
+                func.lower(Lead.email_status).in_(_SAFE_LABELS)))
 
 
 def _list_view_filter(q, view):
     """Server-side filter so the chips/counts cover the WHOLE list, not just a page.
-    Processed = went through verify/enrich = enriched | Non-ICP | No website | Unsafe.
-    Unsafe   = email verified but NOT deliverable (a subset of Processed).
-    Not run  = never went through the process (truly untouched / ready)."""
+    Funnel outcomes: Invalid (free reject) -> Unsafe (Reoon reject) -> Non-ICP ->
+    No website -> Enriched. Processed = anything that reached a terminal state.
+    Not run = never finished the funnel (truly untouched / ready)."""
     if view == "processed":
         return q.filter(or_(Lead.status.in_(_PROCESSED_STATUS), _unsafe_cond()))
     if view == "enriched":
@@ -1472,11 +1509,12 @@ def _list_view_filter(q, view):
         return q.filter(Lead.status == "skipped")
     if view == "no_website":
         return q.filter(Lead.status == "error")
+    if view == "invalid":
+        return q.filter(Lead.status == "invalid")
     if view == "unsafe":
         return q.filter(_unsafe_cond())
     if view == "notrun":
-        return q.filter(_not_processed(), or_(Lead.email_status == None, Lead.email_status == "",  # noqa: E711
-                        func.lower(Lead.email_status).in_(_SAFE_LABELS)))
+        return q.filter(_notrun_cond())
     if view == "title_rejected":
         return q.filter(Lead.title_status == "rejected")
     return q
@@ -1487,12 +1525,14 @@ def _list_counts(s, list_id):
     def c(view):
         return _list_view_filter(
             s.query(func.count(Lead.id)).filter_by(list_id=list_id), view).scalar() or 0
-    enriched, nonicp, no_web, unsafe = c("enriched"), c("nonicp"), c("no_website"), c("unsafe")
+    enriched, nonicp, no_web = c("enriched"), c("nonicp"), c("no_website")
+    unsafe, invalid = c("unsafe"), c("invalid")
     return {
         "all": s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0,
-        "processed": enriched + nonicp + no_web + unsafe,   # includes Unsafe
+        "processed": enriched + nonicp + no_web + unsafe + invalid,   # everything terminal
         "enriched": enriched, "nonicp": nonicp, "no_website": no_web,
-        "unsafe": unsafe, "notrun": c("notrun"), "title_rejected": c("title_rejected"),
+        "unsafe": unsafe, "invalid": invalid,
+        "notrun": c("notrun"), "title_rejected": c("title_rejected"),
     }
 
 
@@ -1634,24 +1674,24 @@ def run_pipeline(list_id: int, body: PipelineBody):
             raise HTTPException(404, "List not found")
         # Pick the first N leads still needing work across the WHOLE list (skip_done
         # applied BEFORE the limit). Streamed so 50k+ stays memory-flat.
-        cols = (s.query(Lead.id, Lead.result, Lead.verify)
+        cols = (s.query(Lead.id, Lead.status)
                 .filter(Lead.list_id == list_id).order_by(Lead.id))
         if body.lead_ids:
             cols = cols.filter(Lead.id.in_(body.lead_ids))
         want = int(body.limit) if (body.limit and body.limit > 0 and not body.lead_ids) else None
 
-        def is_done(result, verify):
-            # ICP-first: a lead is done when it's enriched AND (Non-ICP, or already
-            # verified). Non-ICP never needs verification.
-            if not result:
-                return False
-            if (result or {}).get("ICPReview") == "Non-ICP":
-                return True
-            return bool(verify)
+        # Funnel: a lead is DONE once it reaches a terminal status — invalid (free
+        # reject), unsafe (Reoon reject), skipped (Non-ICP), error (no site), or done
+        # (enriched). 'pending'/'running'/'' mean it hasn't finished the funnel yet
+        # (and any partial work is resumed without re-spending on completed steps).
+        _TERMINAL = {"invalid", "unsafe", "skipped", "error", "done"}
+
+        def is_done(status):
+            return (status or "") in _TERMINAL
 
         target_ids = []
-        for lid, result, verify in cols.yield_per(2000):
-            if body.skip_done and is_done(result, verify):
+        for lid, status in cols.yield_per(2000):
+            if body.skip_done and is_done(status):
                 continue
             target_ids.append(lid)
             if want and len(target_ids) >= want:
@@ -1664,7 +1704,7 @@ def run_pipeline(list_id: int, body: PipelineBody):
         if not body.skip_done and target_ids:
             for i in range(0, len(target_ids), 1000):
                 s.query(Lead).filter(Lead.id.in_(target_ids[i:i + 1000])).update(
-                    {Lead.result: {}}, synchronize_session=False)  # keep verify to save credits
+                    {Lead.result: {}, Lead.status: ""}, synchronize_session=False)  # keep verify to save credits
             s.commit()
         job = Job(list_id=list_id, kind="pipeline", status="queued" if target_ids else "done",
                   total=len(target_ids), variable_set=vset, enrichments=body.enrichments, summary={})
