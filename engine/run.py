@@ -1330,9 +1330,22 @@ def process_row(oai_client, client_profile, variable_set, row, url_col, max_page
         result["_scraped_urls"] = " | ".join(scraped["urls"])
         return result
 
-    # ICP-only mode: the lead IS ICP, but stop here without writing copy. The
-    # caller verifies the email first and only writes copy if it's deliverable —
-    # so no writer tokens are spent on ICP leads with bad emails.
+    # Everything the writer needs, so the copy step can run WITHOUT re-scraping or
+    # re-extracting. The ICP-only pass hands this back; the copy pass reuses it.
+    ctx = {
+        "url": url,
+        "content": scraped["content"],
+        "row_context": row_context,
+        "verified_facts": verified_facts,
+        "icp_review": icp_review,
+        "icp_reason": icp_reason,
+        "skip_icp": skip_icp,
+        "scraped_urls": " | ".join(scraped["urls"]),
+    }
+
+    # ICP-only mode: the lead IS ICP, but stop before writing copy. The caller
+    # verifies the email first and only writes copy if it's deliverable — and it
+    # reuses this `_ctx` so extraction never runs twice.
     if icp_only:
         result = {key: "" for key in variable_set["output_keys"]}
         result["ICPReview"] = icp_review
@@ -1340,45 +1353,50 @@ def process_row(oai_client, client_profile, variable_set, row, url_col, max_page
         result["_status"] = "ok"
         result["_error"] = ""
         result["_icp_only"] = True
-        result["_scraped_urls"] = " | ".join(scraped["urls"])
+        result["_scraped_urls"] = ctx["scraped_urls"]
+        result["_ctx"] = ctx
         return result
 
+    return write_row(oai_client, client_profile, variable_set, ctx)
+
+
+def write_row(oai_client, client_profile, variable_set, ctx):
+    """Write the copy for an already-decided ICP lead, reusing the scrape +
+    extraction from `ctx` (no second scrape or extraction)."""
+    url = ctx["url"]
+    content = ctx["content"]
+    row_context = ctx["row_context"]
+    verified_facts = ctx["verified_facts"]
+    icp_review = ctx["icp_review"]
+    icp_reason = ctx.get("icp_reason", "")
+    skip_icp = ctx.get("skip_icp", False)
+
     data = call_openai(
-        oai_client,
-        client_profile,
-        variable_set,
-        url,
-        scraped["content"],
-        row_context,
+        oai_client, client_profile, variable_set, url, content, row_context,
         verified_facts=verified_facts,
     )
-
-    # Force ICPReview and ICP_reason from the extraction stage (single source of truth).
     data["ICPReview"] = icp_review
     if icp_reason and not skip_icp:
         data["ICP_reason"] = icp_reason
-
     data = scrub_names(data, row_context)
     data = force_followup_linebreaks(data)
 
     issues = validate(data, variable_set)
-    issues.extend(validate_proof_usage(data, verified_facts, scraped["content"], row_context))
-
+    issues.extend(validate_proof_usage(data, verified_facts, content, row_context))
     if issues:
-        data = repair(oai_client, client_profile, variable_set, url, scraped["content"], row_context, data, issues)
+        data = repair(oai_client, client_profile, variable_set, url, content, row_context, data, issues)
         data["ICPReview"] = icp_review
         if icp_reason and not skip_icp:
             data["ICP_reason"] = icp_reason
         data = scrub_names(data, row_context)
         data = force_followup_linebreaks(data)
         issues = validate(data, variable_set)
-        issues.extend(validate_proof_usage(data, verified_facts, scraped["content"], row_context))
+        issues.extend(validate_proof_usage(data, verified_facts, content, row_context))
 
     result = {key: data.get(key, "") for key in variable_set["output_keys"]}
     result["_status"] = "ok" if not issues else "ok_warning"
     result["_error"] = "; ".join(issues)
-    result["_scraped_urls"] = " | ".join(scraped["urls"])
-
+    result["_scraped_urls"] = ctx.get("scraped_urls", "")
     return result
 
 

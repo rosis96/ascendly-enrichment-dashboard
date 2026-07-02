@@ -1061,6 +1061,11 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
     elif result.get("ICPReview") == "ICP":
         result["_title_gate"] = "pass"
 
+    # For an ICP-only pass on an ICP lead, keep the scrape+extraction context so
+    # the copy step can reuse it (no second extraction). Stored in-memory only.
+    if icp_only and result.get("ICPReview") == "ICP" and result.get("_ctx"):
+        result["_stage"] = {"vs": vs, "profile": profile or {}, "ctx": result.pop("_ctx")}
+
     if result.get("_icp_only"):
         cost = 0.012                      # ICP decision only (no writer tokens)
     elif result.get("ICPReview") == "ICP":
@@ -1070,3 +1075,24 @@ def _real_enrich(lead, base, selected=None, custom_specs=None, profile=None, ext
     else:
         cost = 0.012
     return (result, cost)
+
+
+def enrich_write(stage):
+    """Write the copy for an ICP lead, REUSING the extraction captured during the
+    ICP pass (`stage` from enrich(icp_only=True)). No second scrape/extraction."""
+    if os.getenv("ENRICH_MODE", "demo").lower() != "real":
+        return ({"_status": "error", "_error": "enrich_write is real-mode only"}, 0.0)
+    import sys
+    if ENGINE_DIR not in sys.path:
+        sys.path.insert(0, ENGINE_DIR)
+    try:
+        import run as engine
+        from openai import OpenAI
+    except Exception as exc:
+        return ({"_status": "error", "_error": f"engine deps: {exc}"[:200]}, 0.0)
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=6, timeout=90.0)
+        result = engine.write_row(client, stage.get("profile") or {}, stage["vs"], stage["ctx"])
+        return (result, 0.033)            # writer only (extraction already paid for)
+    except Exception as exc:
+        return ({"_status": "error", "_error": f"{type(exc).__name__}: {exc}"[:200]}, 0.0)

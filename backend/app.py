@@ -535,6 +535,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
             return None
         inc = {}
         extra_rules = _rules_list(s, variable_set) if variable_set else []
+        stage = None   # in-memory scrape+extraction to reuse for the copy step
 
         # 1) ICP decision only (no copy). Skip if we already have a result.
         if not ld.result:
@@ -549,6 +550,7 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
                 s.commit()
                 return {**inc, "error": 1}
             ld.icp_decision = r.get("ICPReview") or ""
+            stage = r.pop("_stage", None)            # keep facts for the writer; NOT stored in DB
             ld.result = r
             if r.get("ICPReview") == "Non-ICP":     # 2) Non-ICP -> stop (no Reoon, no copy)
                 ld.status = "skipped"
@@ -575,7 +577,11 @@ def _pipeline_one(lead_id, mode, base, enrichments, custom_specs, profile, varia
 
         # 4) ICP + safe -> write the copy now. Unsafe -> leave as ICP-only (no copy).
         if is_icp and safe and needs_copy:
-            r2, cost2 = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
+            if stage:
+                r2, cost2 = ea.enrich_write(stage)   # reuse the ICP-pass extraction (no re-extract)
+            else:
+                # resume path (worker restarted between ICP and copy): re-enrich fully
+                r2, cost2 = ea.enrich(_lead_row(ld), base, enrichments, custom_specs, profile, extra_rules)
             inc["cost"] = inc.get("cost", 0) + cost2
             if r2.get("_status") == "error" or not r2.get("ICPReview"):
                 ld.result = {"_status": "error", "_error": str(r2.get("_error", "No website content"))[:200]}
