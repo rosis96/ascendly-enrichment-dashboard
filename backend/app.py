@@ -2758,6 +2758,32 @@ def healthz():
     return {"ok": True}
 
 
+@app.get("/api/diag/dns")
+def diag_dns():
+    """Proves whether the free MX layer actually works on this host.
+    Real domains should be True; the fake ones should be False. If EVERYTHING is
+    null, the host blocks outbound DNS and the MX check is failing open (only the
+    syntax + disposable filters are active — Reoon then does all the mailbox work)."""
+    good = ["gmail.com", "microsoft.com", "stripe.com"]
+    dead = ["thisdomaindoesnotexist12345xyz.com", "no-such-company-zzz-99999.com"]
+    results = {d: email_verify._has_mx(d) for d in good + dead}
+    dns_working = results.get("gmail.com") is True and results.get(dead[0]) is False
+    return {
+        "dns_working": dns_working,
+        "results": results,
+        "verdict": ("MX layer is LIVE — dead domains are being rejected for free."
+                    if dns_working else
+                    "MX layer is FAILING OPEN (host blocks DNS) — only syntax + disposable "
+                    "filtering is active. Everything else passes to Reoon."),
+    }
+
+
+@app.get("/api/diag/email")
+def diag_email(e: str):
+    """Run our free verifier on a single address and show the exact verdict."""
+    return {"email": e, "free_check": email_verify.check(e)}
+
+
 @app.get("/login")
 def login_page():
     return FileResponse(os.path.join(FRONTEND_DIR, "login.html"))

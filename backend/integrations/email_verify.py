@@ -29,6 +29,12 @@ try:
 except Exception:  # dnspython not installed
     _HAVE_DNS = False
 
+try:
+    import requests
+    _HAVE_REQUESTS = True
+except Exception:
+    _HAVE_REQUESTS = False
+
 # Valid overall shape. Intentionally conservative (won't reject unusual-but-real
 # addresses); the real "does the mailbox exist" check is Reoon's job.
 _SYNTAX = re.compile(r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
@@ -60,10 +66,33 @@ _cache = {}
 _lock = threading.Lock()
 
 
+def _doh_lookup(domain, rtype):
+    """DNS-over-HTTPS via Google (port 443 — works even where raw DNS/53 is blocked).
+    Returns True (records exist), False (NXDOMAIN / none), or None (couldn't reach)."""
+    if not _HAVE_REQUESTS:
+        return None
+    type_num = {"MX": 15, "A": 1}[rtype]
+    for host in ("https://dns.google/resolve", "https://cloudflare-dns.com/dns-query"):
+        try:
+            r = requests.get(host, params={"name": domain, "type": rtype},
+                             headers={"accept": "application/dns-json"}, timeout=6)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if j.get("Status") == 3:        # NXDOMAIN -> domain doesn't exist
+                return False
+            ans = [a for a in (j.get("Answer") or []) if a.get("type") == type_num]
+            return True if ans else False
+        except Exception:
+            continue
+    return None
+
+
 def _has_mx(domain):
     """True if the domain can receive mail (has MX, or falls back to an A record).
-    Returns None when we genuinely can't tell (no resolver / total DNS failure) so
-    the caller can fail open. Cached per domain."""
+    Returns None when we genuinely can't tell (no resolver / total failure) so the
+    caller can fail open. Tries fast local DNS first, then DNS-over-HTTPS as a
+    fallback so it still works on hosts that block outbound port 53. Cached per domain."""
     with _lock:
         if domain in _cache:
             return _cache[domain]
@@ -113,6 +142,19 @@ def _has_mx(domain):
                 except Exception:
                     continue
     # else: no dnspython -> result stays None (fail open)
+
+    # Fallback: if raw DNS couldn't decide (blocked port 53, timeouts, or no
+    # dnspython), try DNS-over-HTTPS. This is what makes the MX layer actually work
+    # on hosts that block outbound DNS.
+    if result is None:
+        result = _doh_lookup(domain, "MX")
+        if result is False:
+            # got a definitive "no MX" over DoH — confirm the domain exists at all
+            a = _doh_lookup(domain, "A")
+            if a is True:
+                result = True      # no MX but has A record -> can still accept mail
+            elif a is None:
+                result = None      # couldn't confirm -> fail open
 
     with _lock:
         _cache[domain] = result
