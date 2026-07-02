@@ -1396,6 +1396,36 @@ def clear_results(list_id: int, body: IdsBody):
         s.close()
 
 
+@app.post("/api/lists/{list_id}/clear-verification")
+def clear_verification(list_id: int, body: IdsBody):
+    """Clear email verification (our free check + Reoon) so leads can be re-verified.
+    Selected leads, a whole view, or the whole list if nothing is given. Enrichment
+    results are KEPT — this only wipes the verification fields. Leads whose status was
+    a verification outcome (invalid/unsafe) are reset so they run through again."""
+    s = SessionLocal()
+    try:
+        q = s.query(Lead.id).filter(Lead.list_id == list_id)
+        if body.lead_ids:
+            q = q.filter(Lead.id.in_(body.lead_ids))
+        elif body.view and body.view != "all":
+            q = _list_view_filter(q, body.view)
+        ids = [row[0] for row in q.all()]
+        n = 0
+        for i in range(0, len(ids), 1000):
+            chunk = ids[i:i + 1000]
+            s.query(Lead).filter(Lead.id.in_(chunk)).update(
+                {Lead.verify: {}, Lead.email_status: "", Lead.free_status: "",
+                 Lead.verify_source: ""}, synchronize_session=False)
+            # Leads terminated BY verification -> reset so the funnel re-runs them.
+            s.query(Lead).filter(Lead.id.in_(chunk), Lead.status.in_(["invalid", "unsafe"])).update(
+                {Lead.status: ""}, synchronize_session=False)
+            n += len(chunk)
+        s.commit()
+        return {"ok": True, "cleared": n}
+    finally:
+        s.close()
+
+
 @app.delete("/api/lists/{list_id}/leads")
 def delete_leads(list_id: int, ids: str = "", view: Optional[str] = None):
     s = SessionLocal()
@@ -1502,6 +1532,14 @@ def _notrun_cond():
                 func.lower(Lead.email_status).in_(_SAFE_LABELS)))
 
 
+def _verified_cond():
+    # Went through the verification step (our free layer and/or Reoon), regardless of
+    # whether it was later enriched.
+    return or_(Lead.verify_source.in_(["free", "reoon"]),
+               and_(Lead.email_status != None, Lead.email_status != ""),  # noqa: E711
+               and_(Lead.free_status != None, Lead.free_status != ""))     # noqa: E711
+
+
 def _list_view_filter(q, view):
     """Server-side filter so the chips/counts cover the WHOLE list, not just a page.
     Funnel outcomes: Invalid (free reject) -> Unsafe (Reoon reject) -> Non-ICP ->
@@ -1519,6 +1557,8 @@ def _list_view_filter(q, view):
         return q.filter(Lead.status == "invalid")
     if view == "unsafe":
         return q.filter(_unsafe_cond())
+    if view == "verified":
+        return q.filter(_verified_cond())
     if view == "notrun":
         return q.filter(_notrun_cond())
     if view == "title_rejected":
@@ -1537,7 +1577,7 @@ def _list_counts(s, list_id):
         "all": s.query(func.count(Lead.id)).filter_by(list_id=list_id).scalar() or 0,
         "processed": enriched + nonicp + no_web + unsafe + invalid,   # everything terminal
         "enriched": enriched, "nonicp": nonicp, "no_website": no_web,
-        "unsafe": unsafe, "invalid": invalid,
+        "unsafe": unsafe, "invalid": invalid, "verified": c("verified"),
         "notrun": c("notrun"), "title_rejected": c("title_rejected"),
     }
 

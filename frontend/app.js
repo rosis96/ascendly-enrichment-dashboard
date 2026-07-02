@@ -101,6 +101,18 @@ async function clearResults(ids){
   state.selectedLeads.clear();
   await refresh();
 }
+async function clearVerification(ids){
+  const all = !ids || !ids.length;
+  if(!confirm(all
+      ? "Clear ALL email verification in this list (our free check + Reoon)? Leads can be re-verified. Enrichment is kept."
+      : `Clear verification for ${ids.length} selected lead${ids.length > 1 ? "s" : ""}? Enrichment is kept.`)) return;
+  await api(`/api/lists/${state.listId}/clear-verification`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lead_ids: ids || [] }),
+  });
+  state.selectedLeads.clear();
+  await refresh(); loadLists();
+}
 
 function deleteListPopup(name){
   return new Promise(resolve => {
@@ -198,9 +210,10 @@ function renderGrid(d){
   const li = d.list || {};
   const counts = li.counts || {};
   // Category chips show LIVE full-list counts and filter the WHOLE list server-side.
-  const chips = [["all", "All"], ["processed", "Processed"], ["enriched", "Enriched"],
-    ["nonicp", "Non-ICP"], ["no_website", "No website"], ["invalid", "Invalid"],
-    ["unsafe", "Unsafe"], ["notrun", "Not run"], ["title_rejected", "Title-rejected"]];
+  const chips = [["all", "All"], ["processed", "Processed"], ["verified", "Verified"],
+    ["enriched", "Enriched"], ["nonicp", "Non-ICP"], ["no_website", "No website"],
+    ["invalid", "Invalid"], ["unsafe", "Unsafe"], ["notrun", "Not run"],
+    ["title_rejected", "Title-rejected"]];
   const curView = state.listView || "all";
   const chipHtml = chips.map(([k, label]) =>
     `<span class="fchip${curView === k ? " on" : ""}" data-v="${k}">${label} <b>${(counts[k] || 0).toLocaleString()}</b></span>`).join("");
@@ -213,15 +226,18 @@ function renderGrid(d){
     acts += `<span class="dbsel"><b>All ${viewTotal.toLocaleString()}</b> selected</span>` +
       `<span class="gtact del" data-act="delv">Delete ${viewTotal.toLocaleString()}</span>` +
       `<span class="gtact" data-act="clrv">Clear ${viewTotal.toLocaleString()}</span>` +
+      `<span class="gtact" data-act="clrverv">Clear verification</span>` +
       `<span class="gtact" data-act="expv">Export ${viewTotal.toLocaleString()}</span>` +
       `<span class="gtact" data-act="unsel">Cancel</span>`;
   } else if(n > 0){
-    acts += `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span><span class="gtact" data-act="exp">Export ${n}</span>`;
+    acts += `<span class="gtact del" data-act="del">Delete ${n}</span><span class="gtact" data-act="clr">Clear ${n}</span>` +
+      `<span class="gtact" data-act="clrver">Clear verification</span><span class="gtact" data-act="exp">Export ${n}</span>`;
     if(viewTotal > n) acts += `<span class="gtact" data-act="selall">Select all ${viewTotal.toLocaleString()}</span>`;
   } else {
     if(pageIds.length) acts += `<span class="gtact" data-act="selpage">Select page (${pageIds.length})</span>`;
     if(viewTotal > pageIds.length) acts += `<span class="gtact" data-act="selall">Select all ${viewTotal.toLocaleString()}</span>`;
-    acts += `<span class="gtact" data-act="clrall">Clear results</span>`;
+    acts += `<span class="gtact" data-act="clrall">Clear results</span>` +
+      `<span class="gtact" data-act="clrverall">Clear verification</span>`;
   }
   const pager = `<div class="gridpager">` +
     `<button class="gbtn pgbtn" id="pgPrev" ${(li.page || 1) <= 1 ? "disabled" : ""}>‹ Prev</button>` +
@@ -242,12 +258,15 @@ function renderGrid(d){
   wire("unsel", () => { state.selectAllView = false; state.selectedLeads.clear(); renderGrid(d); updateScope(); });
   wire("expv", exportView);
   wire("clrv", clearView);
+  wire("clrverv", clearVerificationView);
   wire("delv", deleteView);
   wire("split", splitByIndustry);
   wire("del", deleteSelected);
   wire("clr", () => clearResults([...state.selectedLeads]));
+  wire("clrver", () => clearVerification([...state.selectedLeads]));
   wire("exp", exportCsv);
   wire("clrall", () => clearResults([]));
+  wire("clrverall", () => clearVerification([]));
 
   // Server already returned the right page for the active view — show it as-is.
   let view = leads.slice();
@@ -590,6 +609,14 @@ async function clearView(){
   if(!state.listId) return;
   if(!confirm(`Clear enrichment results for ALL leads in the "${state.listView}" view? (Verification is kept.)`)) return;
   await api(`/api/lists/${state.listId}/clear`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ view: state.listView || "all" }) });
+  state.selectAllView = false; refresh(); loadLists();
+}
+async function clearVerificationView(){
+  if(!state.listId) return;
+  if(!confirm(`Clear email verification for ALL leads in the "${state.listView}" view? Leads can be re-verified. Enrichment is kept.`)) return;
+  await api(`/api/lists/${state.listId}/clear-verification`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ view: state.listView || "all" }) });
   state.selectAllView = false; refresh(); loadLists();
